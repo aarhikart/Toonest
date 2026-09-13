@@ -1,0 +1,330 @@
+// Prisma Schema for WhatsApp Marketing & Campaign Management Platform
+// Production-Ready PostgreSQL Architecture
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  MANAGER
+  AGENT
+  VIEWER
+}
+
+enum QualityRating {
+  GREEN
+  YELLOW
+  RED
+  UNKNOWN
+}
+
+enum OptInStatus {
+  OPTED_IN
+  OPTED_OUT
+  UNKNOWN
+}
+
+enum TemplateCategory {
+  MARKETING
+  UTILITY
+  AUTHENTICATION
+}
+
+enum TemplateStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  PAUSED
+  DISABLED
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  RUNNING
+  PAUSED
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+enum MessageStatus {
+  QUEUED
+  SENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+enum MessageDirection {
+  OUTBOUND
+  INBOUND
+}
+
+model Organization {
+  id               String            @id @default(cuid())
+  name             String
+  slug             String            @unique
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  memberships      Membership[]
+  whatsAppAccounts WhatsAppAccount[]
+  contacts         Contact[]
+  contactGroups    ContactGroup[]
+  tags             Tag[]
+  templates        MessageTemplate[]
+  campaigns        Campaign[]
+  messages         Message[]
+  apiKeys          ApiKey[]
+  auditLogs        AuditLog[]
+}
+
+model User {
+  id           String       @id @default(cuid())
+  email        String       @unique
+  name         String?
+  passwordHash String
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  memberships  Membership[]
+  auditLogs    AuditLog[]
+}
+
+model Membership {
+  id             String       @id @default(cuid())
+  role           Role         @default(AGENT)
+  userId         String
+  organizationId String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  @@unique([userId, organizationId])
+}
+
+model WhatsAppAccount {
+  id             String                @id @default(cuid())
+  wabaId         String                @unique // Meta WhatsApp Business Account ID
+  businessName   String
+  timezone       String                @default("Asia/Kolkata")
+  currency       String                @default("INR")
+  status         String                @default("CONNECTED") // CONNECTED, RESTRICTED, DISCONNECTED
+  qualityRating  QualityRating         @default(GREEN)
+  appId          String?
+  organizationId String
+  organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  phoneNumbers   WhatsAppPhoneNumber[]
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+}
+
+model WhatsAppPhoneNumber {
+  id                  String          @id @default(cuid())
+  phoneNumberId       String          @unique // Meta Phone Number ID
+  displayPhoneNumber  String          // e.g. +91 98765 43210
+  verifiedName        String
+  qualityRating       QualityRating   @default(GREEN)
+  messagingLimitTier  String          @default("TIER_1K") // TIER_1K, TIER_10K, TIER_100K, TIER_UNLIMITED
+  isDefault           Boolean         @default(true)
+  whatsAppAccountId   String
+  whatsAppAccount     WhatsAppAccount @relation(fields: [whatsAppAccountId], references: [id], onDelete: Cascade)
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+}
+
+model Contact {
+  id             String              @id @default(cuid())
+  phoneNumber    String              // E.164 formatted, e.g. +919876543210
+  fullName       String
+  countryCode    String              @default("IN")
+  optInStatus    OptInStatus         @default(OPTED_IN)
+  optInSource    String              @default("WEBSITE_FORM")
+  optInTimestamp DateTime            @default(now())
+  optOutDate     DateTime?
+  organizationId String
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  groupId        String?
+  group          ContactGroup?       @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  tags           ContactTag[]
+  recipients     CampaignRecipient[]
+  messages       Message[]
+  lastActive     DateTime?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@unique([organizationId, phoneNumber])
+  @@index([organizationId, optInStatus])
+}
+
+model ContactGroup {
+  id             String       @id @default(cuid())
+  name           String
+  description    String?
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  contacts       Contact[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([organizationId, name])
+}
+
+model Tag {
+  id             String       @id @default(cuid())
+  name           String
+  color          String       @default("#5722AF")
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  contacts       ContactTag[]
+
+  @@unique([organizationId, name])
+}
+
+model ContactTag {
+  contactId String
+  tagId     String
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([contactId, tagId])
+}
+
+model MessageTemplate {
+  id             String           @id @default(cuid())
+  metaTemplateId String?          @unique // Meta internal template ID
+  name           String
+  category       TemplateCategory @default(MARKETING)
+  language       String           @default("en_US")
+  status         TemplateStatus   @default(APPROVED)
+  headerType     String?          // TEXT, IMAGE, VIDEO, DOCUMENT
+  headerContent  String?
+  bodyText       String           // e.g. "Hello {{1}}, check out our offer: {{2}}"
+  footerText     String?
+  buttons        Json?            // Interactive quick reply or CTA buttons
+  variables      Json?            // Variable mappings array
+  organizationId String
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  campaigns      Campaign[]
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([organizationId, name, language])
+}
+
+model Campaign {
+  id             String              @id @default(cuid())
+  name           String
+  description    String?
+  status         CampaignStatus      @default(DRAFT)
+  scheduledAt    DateTime?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  timezone       String              @default("Asia/Kolkata")
+  templateId     String
+  template       MessageTemplate     @relation(fields: [templateId], references: [id])
+  organizationId String
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  recipients     CampaignRecipient[]
+  totalAudience  Int                 @default(0)
+  sentCount      Int                 @default(0)
+  deliveredCount Int                 @default(0)
+  readCount      Int                 @default(0)
+  failedCount    Int                 @default(0)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@index([organizationId, status])
+}
+
+model CampaignRecipient {
+  id             String        @id @default(cuid())
+  campaignId     String
+  campaign       Campaign      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contactId      String
+  contact        Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  idempotencyKey String        @unique // Prevents duplicate sends
+  metaMessageId  String?       @unique // wamid.HBg...
+  status         MessageStatus @default(QUEUED)
+  errorCode      String?
+  errorMessage   String?
+  retryCount     Int           @default(0)
+  sentAt         DateTime?
+  deliveredAt    DateTime?
+  readAt         DateTime?
+  failedAt       DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([campaignId, status])
+}
+
+model Message {
+  id             String           @id @default(cuid())
+  metaMessageId  String?          @unique
+  direction      MessageDirection @default(OUTBOUND)
+  status         MessageStatus    @default(QUEUED)
+  body           String
+  mediaUrl       String?
+  mediaType      String?
+  contactId      String
+  contact        Contact          @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  events         MessageEvent[]
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([organizationId, contactId])
+}
+
+model MessageEvent {
+  id        String        @id @default(cuid())
+  messageId String
+  message   Message       @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  status    MessageStatus
+  rawEvent  Json?
+  timestamp DateTime      @default(now())
+}
+
+model WebhookEvent {
+  id          String   @id @default(cuid())
+  eventId     String   @unique
+  eventType   String   // messages, message_status, account_update
+  payload     Json
+  isProcessed Boolean  @default(false)
+  receivedAt  DateTime @default(now())
+}
+
+model ApiKey {
+  id             String       @id @default(cuid())
+  name           String
+  keyPrefix      String
+  hashedKey      String       @unique
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+}
+
+model AuditLog {
+  id             String       @id @default(cuid())
+  action         String
+  entityType     String
+  entityId       String?
+  details        Json?
+  userId         String?
+  user           User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId, createdAt])
+}

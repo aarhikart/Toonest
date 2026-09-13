@@ -1,0 +1,27 @@
+{
+  "name": "toolnest-whatsapp-worker",
+  "version": "1.0.0",
+  "description": "Persistent WhatsApp Web Multi-Device Service with Baileys",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "ts-node-dev --respawn server.ts"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.8",
+    "express": "^4.19.2",
+    "cors": "^2.8.5",
+    "pino": "^9.1.0",
+    "qrcode": "^1.5.3",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.17",
+    "@types/node": "^20.12.7",
+    "@types/qrcode": "^1.5.5",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.4.5"
+  }
+}
