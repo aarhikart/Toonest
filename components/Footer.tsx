@@ -27,7 +27,7 @@ export function Footer() {
           {/* Navigation Links */}
           <div className="flex flex-wrap justify-center items-center gap-5 text-xs font-medium text-zinc-600 dark:text-zinc-400">
             <Link href="/" className="hover:text-[#5722AF] dark:hover:text-[#9B6BE8] transition-colors">
-              Bulk Rename
+              Bulk Rename.
             </Link>
             <Link href="/convert" className="hover:text-[#5722AF] dark:hover:text-[#9B6BE8] transition-colors">
               Converter
