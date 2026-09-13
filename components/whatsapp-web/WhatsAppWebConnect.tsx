@@ -54,6 +54,7 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
       if (saved) {
         setWorkerUrl(saved);
         setWorkerInput(saved);
+        document.cookie = 'toolnest_wa_worker_url=' + encodeURIComponent(saved) + '; path=/; max-age=31536000; SameSite=Lax';
       }
     } catch {}
   }, []);
@@ -146,8 +147,10 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
     try {
       if (clean) {
         localStorage.setItem('toolnest_wa_worker_url', clean);
+        document.cookie = 'toolnest_wa_worker_url=' + encodeURIComponent(clean) + '; path=/; max-age=31536000; SameSite=Lax';
       } else {
         localStorage.removeItem('toolnest_wa_worker_url');
+        document.cookie = 'toolnest_wa_worker_url=; path=/; max-age=0;';
       }
     } catch {}
     setShowConfig(false);

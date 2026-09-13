@@ -125,9 +125,17 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
             payload.isImage = media.isImage;
           }
 
+          const savedWorkerUrl = typeof window !== 'undefined' ? localStorage.getItem('toolnest_wa_worker_url') || '' : '';
+          const requestHeaders: Record<string, string> = {
+            'Content-Type': 'application/json'
+          };
+          if (savedWorkerUrl) {
+            requestHeaders['x-worker-url'] = savedWorkerUrl;
+          }
+
           let res = await fetch('/api/whatsapp-service/send', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: requestHeaders,
             body: JSON.stringify(payload)
           });
 
@@ -139,7 +147,7 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
             await new Promise(r => setTimeout(r, 2500));
             res = await fetch('/api/whatsapp-service/send', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: requestHeaders,
               body: JSON.stringify(payload)
             });
             data = await res.json().catch(() => ({}));

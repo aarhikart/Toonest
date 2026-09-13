@@ -6,6 +6,15 @@ export function getWhatsAppServiceUrl(req?: NextRequest): string {
     if (customHeader && customHeader.trim().startsWith('http')) {
       return customHeader.trim().replace(/\/$/, '');
     }
+    const cookieUrl = req.cookies.get('toolnest_wa_worker_url')?.value;
+    if (cookieUrl) {
+      try {
+        const decoded = decodeURIComponent(cookieUrl).trim();
+        if (decoded.startsWith('http')) {
+          return decoded.replace(/\/$/, '');
+        }
+      } catch {}
+    }
     const { searchParams } = new URL(req.url);
     const customQuery = searchParams.get('workerUrl');
     if (customQuery && customQuery.trim().startsWith('http')) {
