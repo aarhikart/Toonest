@@ -102,9 +102,11 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
 
       const customizedText = WhatsAppSenderEngine.interpolate(messageTemplate, contact);
 
-      // Throttled delay between sends with natural jitter
-      const jitterMs = (delaySeconds + (Math.random() * 1.5 - 0.75)) * 1000;
-      await new Promise(r => setTimeout(r, Math.max(1500, jitterMs)));
+      // Safe anti-ban & Signal session settlement delay between consecutive contacts
+      if (i > 0) {
+        const safeDelayMs = Math.max(4000, (delaySeconds + (Math.random() * 1.5 - 0.75)) * 1000);
+        await new Promise(r => setTimeout(r, safeDelayMs));
+      }
 
       if (!isRunningRef.current) break;
 
@@ -141,10 +143,10 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
 
           let data = await res.json().catch(() => ({}));
 
-          // If failed due to temporary renegotiation, auto-retry once after 2.5 seconds
+          // If failed due to temporary renegotiation, auto-retry once after 3.5 seconds
           if (!res.ok || !data.success) {
-            console.log('First send attempt encountered issue, waiting 2.5s and retrying once...');
-            await new Promise(r => setTimeout(r, 2500));
+            console.log('First send attempt encountered issue, waiting 3.5s and retrying once...');
+            await new Promise(r => setTimeout(r, 3500));
             res = await fetch('/api/whatsapp-service/send', {
               method: 'POST',
               headers: requestHeaders,

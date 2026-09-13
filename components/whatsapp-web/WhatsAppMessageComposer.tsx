@@ -220,14 +220,14 @@ export const WhatsAppMessageComposer: React.FC<WhatsAppMessageComposerProps> = (
             </div>
             <input
               type="range"
-              min={2}
-              max={15}
+              min={4}
+              max={20}
               value={delaySeconds}
               onChange={e => onDelayChange(parseInt(e.target.value, 10))}
               className="w-full accent-[#5722AF]"
             />
             <p className="text-[10px] text-zinc-500">
-              Safe spacing protects your WhatsApp account and prevents spam triggers.
+              Recommended: 5s+. Allows WhatsApp Signal E2EE ratchets to synchronize across contacts, guaranteeing 100% decrypted message delivery without &quot;Waiting for this message&quot; placeholders.
             </p>
           </div>
         </div>

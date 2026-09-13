@@ -35,7 +35,7 @@ export class SimpleCacheStore implements CacheStore {
 export class MessageStore {
   private messages = new Map<string, proto.IMessage>();
   private storeFilePath: string;
-  private maxEntries = 3000;
+  private maxEntries = 5000;
   private saveTimeout: NodeJS.Timeout | null = null;
 
   constructor(sessionDir: string) {
@@ -73,21 +73,45 @@ export class MessageStore {
       } catch (e) {
         console.warn('[WhatsApp Worker] Failed to save message store to disk:', e);
       }
-    }, 1500);
+    }, 1000);
   }
 
-  public set(id: string, message: proto.IMessage): void {
+  public set(id: string, message: proto.IMessage, remoteJid?: string): void {
     if (!id || !message) return;
     if (this.messages.size >= this.maxEntries) {
       const oldestKey = this.messages.keys().next().value;
       if (oldestKey) this.messages.delete(oldestKey);
     }
     this.messages.set(id, message);
+    if (remoteJid) {
+      this.messages.set(`${remoteJid}:${id}`, message);
+      const cleanJid = remoteJid.split('@')[0];
+      this.messages.set(`${cleanJid}:${id}`, message);
+    }
     this.scheduleSave();
   }
 
-  public get(id: string): proto.IMessage | undefined {
-    return this.messages.get(id);
+  public get(id: string, remoteJid?: string): proto.IMessage | undefined {
+    if (!id) return undefined;
+    let msg = this.messages.get(id);
+    if (msg) return msg;
+
+    if (remoteJid) {
+      msg = this.messages.get(`${remoteJid}:${id}`);
+      if (msg) return msg;
+      const cleanJid = remoteJid.split('@')[0];
+      msg = this.messages.get(`${cleanJid}:${id}`);
+      if (msg) return msg;
+    }
+
+    // Secondary scan for compound key match
+    for (const [k, v] of this.messages.entries()) {
+      if (k.endsWith(`:${id}`) || k.includes(id)) {
+        return v;
+      }
+    }
+
+    return undefined;
   }
 
   public has(id: string): boolean {
@@ -141,6 +165,7 @@ export class WhatsAppSessionEngine {
   private messageStore: MessageStore;
   private msgRetryCounterCache = new SimpleCacheStore();
   private userDevicesCache = new SimpleCacheStore();
+  private sendQueue: Promise<any> = Promise.resolve();
 
   constructor(sessionDir = './sessions') {
     this.sessionDir = path.resolve(sessionDir);
@@ -185,7 +210,7 @@ export class WhatsAppSessionEngine {
         userDevicesCache: this.userDevicesCache,
         getMessage: async (key: proto.IMessageKey): Promise<proto.IMessage | undefined> => {
           if (key?.id) {
-            const msg = this.messageStore.get(key.id);
+            const msg = this.messageStore.get(key.id, key.remoteJid || undefined);
             if (msg) {
               console.log(`[WhatsApp Worker] Responding to Signal retry request for message ID: ${key.id} (remote: ${key.remoteJid})`);
               return msg;
@@ -201,7 +226,7 @@ export class WhatsAppSessionEngine {
       this.socket.ev.on('messages.upsert', async ({ messages }) => {
         for (const msg of messages) {
           if (msg.key?.id && msg.message) {
-            this.messageStore.set(msg.key.id, msg.message);
+            this.messageStore.set(msg.key.id, msg.message, msg.key.remoteJid || undefined);
           }
         }
       });
@@ -238,14 +263,22 @@ export class WhatsAppSessionEngine {
           this.qrCodeDataUrl = null;
           this.pairingCode = null;
 
-          // Critical fix: If WhatsApp revoked credentials (401 / loggedOut) on a previously connected session, wipe dead keys
+          // Resilient 401 handling: WhatsApp occasionally drops socket on temporary rate limits or key renegotiations.
+          // Only permanently wipe if user explicitly requested logout or after 3 consecutive failed reconnect attempts.
           if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
-            console.log('[WhatsApp Worker] Stale session detected (401). Wiping dead keys and restarting...');
-            this.clearSessionFiles();
-            this.state = 'DISCONNECTED';
-            this.reconnectAttempts = 0;
-            setTimeout(() => this.initialize(), 1000);
-            return;
+            if (this.isExplicitLogout || this.reconnectAttempts >= 3) {
+              console.log('[WhatsApp Worker] Permanent logout confirmed. Wiping session files and restarting...');
+              this.clearSessionFiles();
+              this.state = 'DISCONNECTED';
+              this.reconnectAttempts = 0;
+              setTimeout(() => this.initialize(), 1000);
+              return;
+            } else {
+              console.log(`[WhatsApp Worker] 401 close intercepted. Reconnect attempt ${this.reconnectAttempts + 1}/3 with existing keys before wiping...`);
+              this.reconnectAttempts++;
+              setTimeout(() => this.initialize(), 2000);
+              return;
+            }
           }
 
           const shouldReconnect = !this.isExplicitLogout;
@@ -366,6 +399,33 @@ export class WhatsAppSessionEngine {
     text: string,
     media?: { buffer: Buffer; mimetype: string; fileName?: string; isImage?: boolean }
   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    return new Promise(resolve => {
+      this.sendQueue = this.sendQueue
+        .then(async () => {
+          try {
+            const res = await this.doSendMessage(phoneNumber, text, media);
+            resolve(res);
+          } catch (err: any) {
+            resolve({
+              success: false,
+              error: err?.message || 'Failed to dispatch message via WhatsApp queue'
+            });
+          }
+        })
+        .catch(err => {
+          resolve({
+            success: false,
+            error: err?.message || 'Unexpected error in WhatsApp send queue'
+          });
+        });
+    });
+  }
+
+  private async doSendMessage(
+    phoneNumber: string,
+    text: string,
+    media?: { buffer: Buffer; mimetype: string; fileName?: string; isImage?: boolean }
+  ): Promise<{ success: boolean; messageId?: string; error?: string }> {
     // If socket is briefly reconnecting or negotiating, wait up to 10s before failing
     if (this.state !== 'CONNECTED' || !this.socket) {
       console.log(`[WhatsApp Worker] Socket state is ${this.state}. Waiting up to 10s for connection to stabilize...`);
@@ -405,15 +465,40 @@ export class WhatsAppSessionEngine {
     let jid = `${clean}@s.whatsapp.net`;
 
     try {
+      // Pre-validate onWhatsApp to ensure contact exists and resolve correct JID
       try {
         const results = await this.socket.onWhatsApp(clean);
-        if (results && results.length > 0 && results[0]?.exists) {
+        if (results && results.length > 0) {
+          if (!results[0].exists) {
+            return {
+              success: false,
+              error: `Phone number +${clean} is not registered on WhatsApp.`
+            };
+          }
           jid = results[0].jid;
         }
       } catch (e) {
         console.warn('[WhatsApp Worker] onWhatsApp lookup warning:', e);
       }
 
+      // Step 1: Pre-warm Signal E2EE session by subscribing to recipient presence
+      try {
+        await this.socket.presenceSubscribe(jid);
+      } catch (e) {
+        // Non-fatal
+      }
+
+      // Step 2: Send 'composing' typing status so recipient phone wakes up and aligns Signal prekeys
+      try {
+        await this.socket.sendPresenceUpdate('composing', jid);
+      } catch (e) {
+        // Non-fatal
+      }
+
+      // Pause 1800ms while "typing" to give recipient phone time to wake up and finalize Signal session
+      await new Promise(r => setTimeout(r, 1800));
+
+      // Step 3: Dispatch message
       let sentMsg: proto.WebMessageInfo | undefined;
 
       if (media) {
@@ -434,12 +519,24 @@ export class WhatsAppSessionEngine {
         sentMsg = await this.socket.sendMessage(jid, { text });
       }
 
+      // Step 4: Clear typing indicator
+      try {
+        await this.socket.sendPresenceUpdate('paused', jid);
+      } catch (e) {
+        // Non-fatal
+      }
+
+      // Cache the message in MessageStore for Signal retry delivery
       const msgId = sentMsg?.key?.id;
       if (msgId && sentMsg?.message) {
-        this.messageStore.set(msgId, sentMsg.message);
+        this.messageStore.set(msgId, sentMsg.message, jid);
         console.log(`[WhatsApp Worker] Message cached for retry delivery: ${jid} (ID: ${msgId})`);
       }
       console.log(`[WhatsApp Worker] Message dispatched to ${jid} (ID: ${msgId})`);
+
+      // Step 5: Critical Settling Delay (1200ms)
+      // Ensures Signal ratchet state is fully committed before the next contact can begin
+      await new Promise(r => setTimeout(r, 1200));
 
       return {
         success: true,
