@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getWhatsAppServiceUrl, getWhatsAppServiceSecret } from '@/lib/whatsapp-web/config';
+
+export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
-  const serviceUrl = process.env.WHATSAPP_SERVICE_URL || 'http://localhost:5001';
-  const serviceSecret = process.env.WHATSAPP_SERVICE_SECRET || 'toolnest_secure_service_token_2026';
+  const serviceUrl = getWhatsAppServiceUrl(req);
+  const serviceSecret = getWhatsAppServiceSecret();
 
   try {
     const body = await req.json();
@@ -15,7 +19,7 @@ export async function POST(req: NextRequest) {
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 20000);
+    const timeout = setTimeout(() => controller.abort(), 25000);
 
     const res = await fetch(`${serviceUrl}/send`, {
       method: 'POST',
@@ -37,7 +41,7 @@ export async function POST(req: NextRequest) {
       {
         success: false,
         error: isOffline
-          ? 'Persistent WhatsApp worker daemon is offline or unreachable on port 5001.'
+          ? `WhatsApp worker service is unreachable at ${serviceUrl}.`
           : (err.message || 'Unknown network error communicating with WhatsApp worker.'),
         isWorkerOffline: isOffline
       },

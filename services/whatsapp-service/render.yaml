@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: toolnest-whatsapp-worker
+    env: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: node dist/server.js
+    envVars:
+      - key: PORT
+        value: 5001
+      - key: WHATSAPP_SERVICE_SECRET
+        value: toolnest_secure_service_token_2026

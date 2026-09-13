@@ -1,14 +1,9 @@
-FROM node:20-alpine AS base
+FROM node:20-alpine
 WORKDIR /app
-
-COPY package.json tsconfig.json ./
+COPY package*.json tsconfig.json ./
 RUN npm install
-
 COPY . .
 RUN npm run build
-
 EXPOSE 5001
-
-VOLUME ["/app/sessions"]
-
-CMD ["npm", "start"]
+ENV PORT=5001
+CMD ["node", "dist/server.js"]

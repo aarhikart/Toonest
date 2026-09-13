@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getWhatsAppServiceUrl, getWhatsAppServiceSecret } from '@/lib/whatsapp-web/config';
+
+export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
-  const serviceUrl = process.env.WHATSAPP_SERVICE_URL || 'http://localhost:5001';
-  const serviceSecret = process.env.WHATSAPP_SERVICE_SECRET || 'toolnest_secure_service_token_2026';
+  const serviceUrl = getWhatsAppServiceUrl(req);
+  const serviceSecret = getWhatsAppServiceSecret();
 
   try {
     const body = await req.json();
@@ -21,7 +24,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        error: `Failed to connect to persistent WhatsApp worker at ${serviceUrl}. Ensure worker is running.`
+        error: `Failed to connect to WhatsApp worker at ${serviceUrl}.`
       },
       { status: 502 }
     );

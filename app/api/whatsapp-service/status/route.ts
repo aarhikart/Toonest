@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
+import { getWhatsAppServiceUrl, getWhatsAppServiceSecret } from '@/lib/whatsapp-web/config';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -30,8 +31,8 @@ function ensureWorkerRunning() {
 }
 
 export async function GET(req: NextRequest) {
-  const serviceUrl = process.env.WHATSAPP_SERVICE_URL || 'http://localhost:5001';
-  const serviceSecret = process.env.WHATSAPP_SERVICE_SECRET || 'toolnest_secure_service_token_2026';
+  const serviceUrl = getWhatsAppServiceUrl(req);
+  const serviceSecret = getWhatsAppServiceSecret();
   const { searchParams } = new URL(req.url);
   const shouldRestart = searchParams.get('restart') === 'true';
 
@@ -65,7 +66,8 @@ export async function GET(req: NextRequest) {
       const data = await res.json();
       return NextResponse.json({
         ...data,
-        isWorkerOnline: true
+        isWorkerOnline: true,
+        resolvedServiceUrl: serviceUrl
       }, { headers: noCacheHeaders });
     }
   } catch (err) {
@@ -75,13 +77,13 @@ export async function GET(req: NextRequest) {
   }
 
   return NextResponse.json({
-    state: 'CONNECTING',
+    state: 'DISCONNECTED',
     isConnected: false,
     qrCodeDataUrl: null,
     pairingCode: null,
     user: null,
     lastConnectedAt: null,
     isWorkerOnline: false,
-    serviceUrl
+    resolvedServiceUrl: serviceUrl
   }, { headers: noCacheHeaders });
 }

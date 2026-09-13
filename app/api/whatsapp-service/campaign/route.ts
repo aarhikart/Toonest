@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getWhatsAppServiceUrl, getWhatsAppServiceSecret } from '@/lib/whatsapp-web/config';
 
-export async function GET() {
-  const serviceUrl = process.env.WHATSAPP_SERVICE_URL || 'http://localhost:5001';
-  const serviceSecret = process.env.WHATSAPP_SERVICE_SECRET || 'toolnest_secure_service_token_2026';
+export const dynamic = 'force-dynamic';
+
+export async function GET(req: NextRequest) {
+  const serviceUrl = getWhatsAppServiceUrl(req);
+  const serviceSecret = getWhatsAppServiceSecret();
 
   try {
     const res = await fetch(`${serviceUrl}/campaign/status`, {
@@ -22,8 +25,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const serviceUrl = process.env.WHATSAPP_SERVICE_URL || 'http://localhost:5001';
-  const serviceSecret = process.env.WHATSAPP_SERVICE_SECRET || 'toolnest_secure_service_token_2026';
+  const serviceUrl = getWhatsAppServiceUrl(req);
+  const serviceSecret = getWhatsAppServiceSecret();
 
   try {
     const body = await req.json();

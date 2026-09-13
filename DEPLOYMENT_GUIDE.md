@@ -1,103 +1,86 @@
 # ToolNest WhatsApp Bulk Marketing Platform: Multi-Platform Deployment Guide
 
-This guide covers running and deploying ToolNest's WhatsApp Web Multi-Device platform across hosting environments, including **Hostinger VPS / Dedicated Servers**, **Docker**, **PM2**, and **Vercel**.
+This guide explains how to get a **100% working WhatsApp Web connection & campaign delivery** when your Next.js application is hosted on **Vercel (`https://toonest.vercel.app`)**, **Hostinger VPS**, or **Docker**.
 
 ---
 
-## 1. Architecture Overview
+## 1. Why Vercel Needs a Persistent Worker
 
-WhatsApp Web Multi-Device relies on a persistent TCP/WebSocket connection with WhatsApp servers (handled by `@whiskeysockets/baileys`).
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                      Client Browser                     │
-│               (/whatsapp-marketing UI)                 │
-└────────────┬───────────────────────────────┬────────────┘
-             │                               │
-             │ (1. Daemon Mode)              │ (2. Browser Direct Fallback)
-             ▼                               ▼
-┌─────────────────────────┐      ┌─────────────────────────┐
-│     Next.js Gateway     │      │   Direct WhatsApp Web   │
-│ (/api/whatsapp-service) │      │  (web.whatsapp.com/send)│
-└────────────┬────────────┘      └─────────────────────────┘
-             │
-             │ HTTP / JSON (x-service-key)
-             ▼
-┌─────────────────────────────────────────────────────────┐
-│       Persistent WhatsApp Worker Daemon (Port 5001)     │
-│   • Multi-Device Baileys Engine                         │
-│   • Real QR Code / 8-Digit Pairing Code generation      │
-│   • Persistent Session Keys in ./sessions/              │
-│   • Rate-limited Message & Media Dispatcher             │
-└──────────────────────────┬──────────────────────────────┘
-                           │
-                           │ Persistent Secure WebSocket
-                           ▼
-                 WhatsApp Official Servers
-```
+- Next.js on Vercel runs in **Stateless Serverless Functions**.
+- Vercel functions freeze/shut down after each HTTP request, which terminates long-running WebSockets.
+- Real WhatsApp Web Multi-Device links (`@whiskeysockets/baileys`) require an **active, persistent connection** to generate real pairing QR codes and receive instant delivery confirmations.
+- **Solution**: The Next.js frontend on Vercel connects to your persistent WhatsApp Worker Daemon via a secure gateway proxy.
 
 ---
 
-## 2. Deployment on Hostinger VPS / Linux / Ubuntu / Debian
+## 2. Three Ways to Run on Vercel (`toonest.vercel.app`)
 
-On Hostinger VPS, both Next.js and the WhatsApp worker run side-by-side using **PM2** so they run 24/7 without disconnecting.
+### Approach 1: Connect via Free Public Tunnel (Fastest & Zero Setup)
+If your worker is already running on your computer on port 5001:
 
-### Step 1: Clone and Install Dependencies
+1. In your local terminal, expose port 5001 using any free tunnel:
+   ```bash
+   npx localtunnel --port 5001
+   # OR with ngrok:
+   ngrok http 5001
+   ```
+2. It gives you a public HTTPS URL (e.g., `https://toolnest-wa.loca.lt` or `https://xxxx.ngrok-free.app`).
+3. Open **`https://toonest.vercel.app/whatsapp-marketing`**.
+4. Click the **Settings Gear ⚙️** next to *WhatsApp Web Authentication*.
+5. Paste your public tunnel URL into **Worker Service URL** and click **Save & Connect**.
+6. **The real WhatsApp QR Code will appear instantly on your Vercel site!**
+7. Scan with your phone &rarr; Dashboard turns **ACTIVE** &rarr; Send messages 100%!
+
+---
+
+### Approach 2: Deploy Free Cloud Worker to Render.com / Railway (24/7 Always-On)
+To have your worker run 24/7 in the cloud without keeping your PC on:
+
+1. Create a free account at [Render.com](https://render.com).
+2. Click **New + &gt; Web Service** and connect your GitHub repository.
+3. Set the following:
+   - **Root Directory**: `services/whatsapp-service`
+   - **Build Command**: `npm install && npm run build`
+   - **Start Command**: `node dist/server.js`
+   - **Environment Variables**:
+     - `PORT` = `5001`
+     - `WHATSAPP_SERVICE_SECRET` = `toolnest_secure_service_token_2026`
+4. Render deploys it and gives you a free HTTPS URL:
+   `https://your-worker-name.onrender.com`
+5. In your **Vercel Project Settings &gt; Environment Variables**:
+   - Add: `WHATSAPP_SERVICE_URL` = `https://your-worker-name.onrender.com`
+   - Add: `WHATSAPP_SERVICE_SECRET` = `toolnest_secure_service_token_2026`
+6. Now `toonest.vercel.app` permanently connects to your 24/7 cloud worker!
+
+---
+
+### Approach 3: Browser Direct Mode (Zero Server Needed)
+If you don't want to run any backend worker at all:
+1. On `https://toonest.vercel.app/whatsapp-marketing`, scroll to **Step 4: Campaign Engine**.
+2. Switch the dispatch toggle to **Browser Direct**.
+3. Add your contacts and click **Start Campaign**.
+4. ToolNest will launch WhatsApp Web chats sequentially with pre-filled personalized messages with 1 click per contact!
+
+---
+
+## 3. Hostinger VPS / Linux / Ubuntu Deployment
+
+On Hostinger VPS, both Next.js and the worker run together locally using PM2:
+
 ```bash
-cd /var/www/toolnest
-
-# Install root Next.js dependencies
-npm install
-
-# Install WhatsApp worker dependencies
+# 1. Build and start WhatsApp worker
 cd services/whatsapp-service
-npm install
-npm run build
+npm install && npm run build
+pm2 start "node dist/server.js" --name "whatsapp-worker"
+
+# 2. Build and start Next.js
 cd ../..
-```
-
-### Step 2: Environment Variables (`.env.local` / `.env`)
-In `/var/www/toolnest/.env.local`:
-```env
-PORT=3000
-WHATSAPP_SERVICE_URL=http://localhost:5001
-WHATSAPP_SERVICE_SECRET=toolnest_secure_service_token_2026
-```
-
-### Step 3: Start with PM2 (24/7 Persistent Daemon)
-```bash
-# Install PM2 globally
-npm install -g pm2
-
-# Build Next.js
-npm run build
-
-# Start WhatsApp Persistent Worker on Port 5001
-pm2 start "cd services/whatsapp-service && node dist/server.js" --name "whatsapp-worker"
-
-# Start Next.js on Port 3000
+npm install && npm run build
 pm2 start "npm start" --name "toolnest-web"
 
-# Save PM2 process list and configure auto-start on boot
+# 3. Save PM2 processes
 pm2 save
 pm2 startup
 ```
 
----
-
-## 3. Deployment on Vercel (Serverless)
-
-Vercel functions are stateless and cannot host a persistent WebSocket directly. ToolNest supports two setups for Vercel:
-
-### Option A: Hybrid (Vercel Frontend + VPS/Cloud Worker) — **Recommended**
-1. Run the `services/whatsapp-service` worker on a persistent VPS (Hostinger, Render, Railway, Fly.io, or DigitalOcean).
-2. In your Vercel Project Settings → **Environment Variables**, set:
-   - `WHATSAPP_SERVICE_URL`: `https://your-worker.yourdomain.com` (or your VPS IP e.g. `http://192.168.1.1:5001`)
-   - `WHATSAPP_SERVICE_SECRET`: `toolnest_secure_service_token_2026`
-3. Now all campaigns started from Vercel are proxied securely to your persistent worker!
-
-### Option B: Browser Direct Mode (Zero-Server Fallback on Vercel)
-If you don't have a remote worker:
-1. Open `/whatsapp-marketing`.
-2. Select **Browser Direct** in the campaign dispatcher.
-3. ToolNest uses client-side WhatsApp Web tabs (`web.whatsapp.com/send?phone=...&text=...`), allowing you to send messages without any backend daemon.
+Both services will run 24/7 side-by-side on your Hostinger VPS!

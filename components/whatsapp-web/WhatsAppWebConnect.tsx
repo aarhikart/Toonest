@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   QrCode,
   Smartphone,
@@ -15,7 +15,11 @@ import {
   Sparkles,
   Server,
   AlertCircle,
-  Loader2
+  Loader2,
+  Settings,
+  Globe,
+  Wifi,
+  WifiOff
 } from 'lucide-react';
 import { WhatsAppSessionManager } from '@/lib/whatsapp-web/session';
 import { WhatsAppWebSession } from '@/lib/whatsapp-web/types';
@@ -38,15 +42,45 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
   const [pairingError, setPairingError] = useState<string | null>(null);
   const [loadingTime, setLoadingTime] = useState(0);
 
-  const fetchStatus = async (restart = false) => {
+  // Custom Worker URL for Vercel / Remote Hosting
+  const [workerUrl, setWorkerUrl] = useState<string>('');
+  const [workerInput, setWorkerInput] = useState<string>('');
+  const [showConfig, setShowConfig] = useState<boolean>(false);
+
+  // Load saved worker URL from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('toolnest_wa_worker_url');
+      if (saved) {
+        setWorkerUrl(saved);
+        setWorkerInput(saved);
+      }
+    } catch {}
+  }, []);
+
+  const getHeaders = () => {
+    const headers: Record<string, string> = {};
+    if (workerUrl && workerUrl.trim()) {
+      headers['x-worker-url'] = workerUrl.trim();
+    }
+    return headers;
+  };
+
+  const fetchStatus = async (restart = false, overrideUrl?: string) => {
     if (restart) {
       setIsRestarting(true);
       setRealQrUrl(null);
       setLoadingTime(0);
     }
     try {
+      const targetWorker = overrideUrl !== undefined ? overrideUrl : workerUrl;
+      const headers: Record<string, string> = {};
+      if (targetWorker && targetWorker.trim()) {
+        headers['x-worker-url'] = targetWorker.trim();
+      }
+
       const url = restart ? '/api/whatsapp-service/status?restart=true' : '/api/whatsapp-service/status';
-      const res = await fetch(url, { cache: 'no-store' });
+      const res = await fetch(url, { headers, cache: 'no-store' });
       if (!res.ok) return;
       const data = await res.json();
 
@@ -91,9 +125,9 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
       }
     }, 1500);
     return () => clearInterval(interval);
-  }, [session.connected]);
+  }, [session.connected, workerUrl]);
 
-  // Track how long we have been waiting for QR to offer direct reset
+  // Track loading time to offer direct help / reload
   useEffect(() => {
     if (session.connected || realQrUrl) {
       setLoadingTime(0);
@@ -105,6 +139,21 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
     return () => clearInterval(timer);
   }, [session.connected, realQrUrl]);
 
+  const handleSaveWorkerUrl = (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = workerInput.trim();
+    setWorkerUrl(clean);
+    try {
+      if (clean) {
+        localStorage.setItem('toolnest_wa_worker_url', clean);
+      } else {
+        localStorage.removeItem('toolnest_wa_worker_url');
+      }
+    } catch {}
+    setShowConfig(false);
+    fetchStatus(true, clean);
+  };
+
   const handleRequestPairingCode = async () => {
     if (!phoneNumberInput.trim()) return;
     setIsRequestingPairing(true);
@@ -112,7 +161,10 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
     try {
       const res = await fetch('/api/whatsapp-service/pair', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...getHeaders()
+        },
         body: JSON.stringify({ phoneNumber: phoneNumberInput })
       });
       const data = await res.json();
@@ -130,7 +182,10 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
 
   const handleDisconnect = async () => {
     try {
-      await fetch('/api/whatsapp-service/logout', { method: 'POST' });
+      await fetch('/api/whatsapp-service/logout', {
+        method: 'POST',
+        headers: getHeaders()
+      });
     } catch {}
     WhatsAppSessionManager.clearSession();
     onSessionChange({ connected: false, method: 'QR' });
@@ -207,8 +262,17 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
                 : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
             }`}>
               <span className={`w-1.5 h-1.5 rounded-full ${isWorkerOnline ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
-              {isWorkerOnline ? 'WhatsApp Multi-Device Engine: Online' : 'Connecting to Worker...'}
+              {isWorkerOnline ? 'Worker Daemon: Online' : 'Worker: Offline / Standalone'}
             </span>
+
+            {/* Cloud Worker URL Settings Trigger */}
+            <button
+              onClick={() => setShowConfig(!showConfig)}
+              className="p-1 text-zinc-400 hover:text-[#5722AF] rounded-lg transition"
+              title="Configure Worker Server URL (for Vercel / Remote Hosting)"
+            >
+              <Settings className="w-3.5 h-3.5" />
+            </button>
           </div>
           <p className="text-xs text-zinc-500 mt-0.5">
             Real WhatsApp Web Multi-Device connection. Scan the real QR code with your phone or request an official 8-digit Pairing Code.
@@ -238,6 +302,62 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
         </div>
       </div>
 
+      {/* Cloud Worker Configuration Card (for Vercel / Remote Hosting) */}
+      {showConfig && (
+        <form onSubmit={handleSaveWorkerUrl} className="p-4 bg-purple-50/50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800 rounded-2xl space-y-3 animate-in fade-in">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Globe className="w-4 h-4 text-[#5722AF]" />
+              <h4 className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
+                Persistent WhatsApp Worker Gateway (Vercel &amp; Hosting Setup)
+              </h4>
+            </div>
+            <span className="text-[11px] text-zinc-500 font-mono">
+              Current: {workerUrl || 'Default (Local Port 5001)'}
+            </span>
+          </div>
+          <p className="text-[11px] text-zinc-600 dark:text-zinc-400 leading-relaxed">
+            When hosted on <strong>Vercel (toonest.vercel.app)</strong>, serverless functions cannot hold a 24/7 WebSocket. Point this to your persistent worker running on Hostinger VPS, Render, Railway, or an ngrok/tunnel URL (e.g. <code className="bg-white dark:bg-zinc-800 px-1 py-0.5 rounded">https://xxxx.ngrok-free.app</code> or <code className="bg-white dark:bg-zinc-800 px-1 py-0.5 rounded">http://your-vps:5001</code>).
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={workerInput}
+              onChange={e => setWorkerInput(e.target.value)}
+              placeholder="e.g. https://xxxx.ngrok-free.app or http://123.45.67.89:5001"
+              className="flex-1 text-xs font-mono p-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-[#5722AF]"
+            />
+            <button
+              type="submit"
+              className="px-4 py-2 bg-[#5722AF] hover:bg-[#471a93] text-white text-xs font-semibold rounded-xl transition"
+            >
+              Save &amp; Connect
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* Offline Guidance when on Vercel and Worker is not reachable */}
+      {!isWorkerOnline && (
+        <div className="p-4 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-900 dark:text-amber-200">
+          <div className="flex items-start gap-2.5">
+            <WifiOff className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold">Persistent WhatsApp Daemon is offline or unreachable.</p>
+              <p className="text-[11px] text-amber-700 dark:text-amber-300 mt-0.5">
+                If hosted on Vercel, click <strong>&quot;Configure Worker URL&quot;</strong> above to connect your VPS or public tunnel, or run <code className="font-mono bg-white/60 dark:bg-zinc-900/60 px-1 rounded">node dist/server.js</code> locally on port 5001.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowConfig(true)}
+            className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-semibold shrink-0 transition"
+          >
+            Configure Worker URL
+          </button>
+        </div>
+      )}
+
       {/* Tab 1: Real QR Code */}
       {activeTab === 'QR' && (
         <div className="flex flex-col md:flex-row items-center gap-8 justify-center py-2">
@@ -257,10 +377,10 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
                   <Loader2 className="w-8 h-8 text-[#5722AF] animate-spin" />
                   <div>
                     <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
-                      Generating WhatsApp QR Code...
+                      {isWorkerOnline ? 'Generating WhatsApp QR Code...' : 'Waiting for WhatsApp Worker...'}
                     </p>
                     <p className="text-[11px] text-zinc-500 mt-1">
-                      {isRestarting ? 'Wiping stale session & creating new handshake...' : 'Establishing official Noise handshake'}
+                      {isRestarting ? 'Wiping stale session & creating new handshake...' : (isWorkerOnline ? 'Establishing official Noise handshake' : 'Check Worker URL or start daemon')}
                     </p>
                   </div>
 
