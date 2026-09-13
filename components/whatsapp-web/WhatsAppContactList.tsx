@@ -11,7 +11,8 @@ import {
   Globe,
   CheckCircle2,
   Clock,
-  AlertCircle
+  AlertCircle,
+  ArrowRightLeft
 } from 'lucide-react';
 import { WebContact } from '@/lib/whatsapp-web/types';
 import { WhatsAppSenderEngine, POPULAR_COUNTRY_CODES } from '@/lib/whatsapp-web/sender';
@@ -213,77 +214,88 @@ export const WhatsAppContactList: React.FC<WhatsAppContactListProps> = ({
         </div>
       </form>
 
-      {/* Contacts List Table */}
-      <div className="border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden max-h-72 overflow-y-auto">
-        {contacts.length === 0 ? (
-          <div className="p-8 text-center text-xs text-zinc-400">
-            No contacts added yet. Click &quot;Bulk Paste&quot;, &quot;CSV Upload&quot;, or &quot;Load Sample&quot; to begin.
-          </div>
-        ) : (
-          <table className="w-full text-left text-xs">
-            <thead className="bg-zinc-50 dark:bg-zinc-800/60 text-zinc-500 border-b border-zinc-200 dark:border-zinc-800 sticky top-0">
-              <tr>
-                <th className="py-2.5 px-3">#</th>
-                <th className="py-2.5 px-3">Name</th>
-                <th className="py-2.5 px-3">WhatsApp Number</th>
-                <th className="py-2.5 px-3">Status</th>
-                <th className="py-2.5 px-3 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {contacts.map((c, idx) => (
-                <tr key={c.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
-                  <td className="py-2 px-3 text-zinc-400 font-mono text-[11px]">{idx + 1}</td>
-                  <td className="py-2 px-3 font-semibold text-zinc-800 dark:text-zinc-200">{c.name}</td>
-                  <td className="py-2 px-3 font-mono text-zinc-600 dark:text-zinc-300">
-                    {c.phoneNumber}
-                  </td>
-                  <td className="py-2 px-3">
-                    <span
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                        c.status === 'SENT'
-                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                          : c.status === 'SENDING'
-                          ? 'bg-purple-100 text-[#5722AF] animate-pulse dark:bg-purple-950 dark:text-purple-300'
-                          : c.status === 'FAILED'
-                          ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
-                          : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
-                      }`}
-                    >
-                      {c.status === 'SENT' && <CheckCircle2 className="w-3 h-3" />}
-                      {c.status === 'SENDING' && <Clock className="w-3 h-3" />}
-                      {c.status === 'FAILED' && <AlertCircle className="w-3 h-3" />}
-                      {c.status}
-                    </span>
-                  </td>
-                  <td className="py-2 px-3 text-right">
-                    <div className="flex items-center justify-end gap-1.5">
-                      {/* Direct WhatsApp Web link for testing or manual send */}
-                      <a
-                        href={WhatsAppSenderEngine.getDirectWhatsAppWebUrl(
-                          c.phoneNumber,
-                          WhatsAppSenderEngine.interpolate(messageTemplate, c)
-                        )}
-                        target="_blank"
-                        rel="noreferrer"
-                        title="Open direct chat in WhatsApp Web"
-                        className="p-1 text-zinc-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded transition"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </a>
-                      <button
-                        onClick={() => handleRemove(c.id)}
-                        className="p-1 text-zinc-400 hover:text-rose-600 rounded transition"
-                        title="Remove contact"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </td>
+      {/* Contacts List Table with Horizontal and Vertical Scrolling for Mobile */}
+      <div className="space-y-1">
+        <div className="border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-x-auto overflow-y-auto max-h-72 scrollbar-thin scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-700">
+          {contacts.length === 0 ? (
+            <div className="p-8 text-center text-xs text-zinc-400">
+              No contacts added yet. Click &quot;Bulk Paste&quot;, &quot;CSV Upload&quot;, or &quot;Load Sample&quot; to begin.
+            </div>
+          ) : (
+            <table className="w-full text-left text-xs min-w-[540px]">
+              <thead className="bg-zinc-50 dark:bg-zinc-800/80 text-zinc-500 border-b border-zinc-200 dark:border-zinc-800 sticky top-0 z-10 backdrop-blur-xs">
+                <tr>
+                  <th className="py-2.5 px-3 w-10">#</th>
+                  <th className="py-2.5 px-3 min-w-[120px]">Name</th>
+                  <th className="py-2.5 px-3 min-w-[160px]">WhatsApp Number</th>
+                  <th className="py-2.5 px-3 min-w-[110px]">Status</th>
+                  <th className="py-2.5 px-3 min-w-[90px] text-right sticky right-0 bg-zinc-50/95 dark:bg-zinc-800/95 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.05)]">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                {contacts.map((c, idx) => (
+                  <tr key={c.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
+                    <td className="py-2 px-3 text-zinc-400 font-mono text-[11px]">{idx + 1}</td>
+                    <td className="py-2 px-3 font-semibold text-zinc-800 dark:text-zinc-200 truncate max-w-[140px]">{c.name}</td>
+                    <td className="py-2 px-3 font-mono text-zinc-600 dark:text-zinc-300 whitespace-nowrap">
+                      {c.phoneNumber}
+                    </td>
+                    <td className="py-2 px-3 whitespace-nowrap">
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          c.status === 'SENT'
+                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                            : c.status === 'SENDING'
+                            ? 'bg-purple-100 text-[#5722AF] animate-pulse dark:bg-purple-950 dark:text-purple-300'
+                            : c.status === 'FAILED'
+                            ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                            : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+                        }`}
+                      >
+                        {c.status === 'SENT' && <CheckCircle2 className="w-3 h-3" />}
+                        {c.status === 'SENDING' && <Clock className="w-3 h-3" />}
+                        {c.status === 'FAILED' && <AlertCircle className="w-3 h-3" />}
+                        {c.status}
+                      </span>
+                    </td>
+                    <td className="py-2 px-3 text-right sticky right-0 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xs shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.05)]">
+                      <div className="flex items-center justify-end gap-1.5">
+                        {/* Direct WhatsApp Web link for testing or manual send */}
+                        <a
+                          href={WhatsAppSenderEngine.getDirectWhatsAppWebUrl(
+                            c.phoneNumber,
+                            WhatsAppSenderEngine.interpolate(messageTemplate, c)
+                          )}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="Open direct chat in WhatsApp Web"
+                          className="p-1 text-zinc-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded transition"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                        <button
+                          onClick={() => handleRemove(c.id)}
+                          className="p-1 text-zinc-400 hover:text-rose-600 rounded transition"
+                          title="Remove contact"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+        {contacts.length > 0 && (
+          <div className="sm:hidden flex items-center justify-between text-[10px] text-zinc-400 px-1 pt-0.5">
+            <span className="flex items-center gap-1">
+              <ArrowRightLeft className="w-3 h-3 text-[#5722AF]" />
+              Swipe table left/right to view all details &amp; actions
+            </span>
+            <span>{contacts.length} total</span>
+          </div>
         )}
       </div>
     </div>

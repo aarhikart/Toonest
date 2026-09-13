@@ -16,7 +16,8 @@ import {
   Sliders,
   HelpCircle,
   Radio,
-  Server
+  Server,
+  Trash2
 } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { Sidebar } from '@/components/Sidebar';
@@ -88,6 +89,52 @@ export default function WhatsAppMarketingPage() {
     } catch {}
   };
 
+  const handleClearBrowserData = () => {
+    const confirmed = window.confirm(
+      'Are you sure you want to delete all stored browser data?\n\nThis will clear:\n• Saved Worker Gateway URLs\n• All Audience Contacts in localStorage\n• Message Templates & Drafts\n• Saved Session Cookies\n\nThe page will reset cleanly.'
+    );
+
+    if (!confirmed) return;
+
+    try {
+      // 1. Clear all toolnest WhatsApp localStorage keys
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith('toolnest_wa_') || key.includes('whatsapp') || key.includes('wa_'))) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach(k => localStorage.removeItem(k));
+
+      // Explicitly delete known keys
+      localStorage.removeItem('toolnest_wa_worker_url');
+      localStorage.removeItem('toolnest_wa_contacts_v1');
+      localStorage.removeItem('toolnest_wa_template_v1');
+      localStorage.removeItem('toolnest_wa_session');
+      localStorage.removeItem('toolnest_wa_session_v1');
+      localStorage.removeItem('toolnest_wa_delay');
+
+      // 2. Clear sessionStorage
+      sessionStorage.clear();
+
+      // 3. Clear cookie
+      document.cookie = 'toolnest_wa_worker_url=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+
+      // 4. Reset component state
+      setContacts([]);
+      setMessageTemplate('Hi {name}! 🎉 Welcome to ToolNest.');
+      setMedia(null);
+      setSession({ connected: false, method: 'QR' });
+
+      alert('All stored browser data, saved URLs, and contacts have been cleared successfully!');
+      window.location.reload();
+    } catch (err: any) {
+      console.error('Failed to clear browser data:', err);
+      alert('Error clearing browser data: ' + (err.message || 'Unknown error'));
+    }
+  };
+
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-[#0a0d14] text-zinc-900 dark:text-zinc-100 flex flex-col transition-colors">
       <Header
@@ -106,16 +153,27 @@ export default function WhatsAppMarketingPage() {
       <HelpModal isOpen={isHelpOpen} onClose={() => setIsHelpOpen(false)} />
 
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 space-y-8">
-        {/* Breadcrumb Navigation */}
-        <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-          <Link href="/" className="hover:text-[#5722AF] dark:hover:text-[#9B6BE8] transition-colors">
-            Home
-          </Link>
-          <ChevronRight className="w-3.5 h-3.5" />
-          <span className="text-zinc-400 dark:text-zinc-500">Business &amp; Marketing</span>
-          <ChevronRight className="w-3.5 h-3.5" />
-          <span className="font-semibold text-zinc-900 dark:text-white">WhatsApp Web Bulk Sender</span>
-        </nav>
+        {/* Breadcrumb Navigation & Top Action Bar */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+            <Link href="/" className="hover:text-[#5722AF] dark:hover:text-[#9B6BE8] transition-colors">
+              Home
+            </Link>
+            <ChevronRight className="w-3.5 h-3.5" />
+            <span className="text-zinc-400 dark:text-zinc-500">Business &amp; Marketing</span>
+            <ChevronRight className="w-3.5 h-3.5" />
+            <span className="font-semibold text-zinc-900 dark:text-white">WhatsApp Web Bulk Sender</span>
+          </nav>
+
+          <button
+            onClick={handleClearBrowserData}
+            title="Delete all stored browser data, saved worker URLs, contacts, and drafts"
+            className="self-start sm:self-auto px-3.5 py-1.5 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/30 dark:hover:bg-rose-950/60 text-rose-700 dark:text-rose-300 text-xs font-semibold flex items-center gap-1.5 transition shadow-2xs cursor-pointer"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Delete Browser Data</span>
+          </button>
+        </div>
 
         {/* Hero Section */}
         <div className="relative rounded-3xl p-6 md:p-8 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xs overflow-hidden">
