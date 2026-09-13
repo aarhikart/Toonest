@@ -47,9 +47,11 @@ app.post('/pair', verifySecret, async (req, res) => {
             return res.status(400).json({ error: 'phoneNumber is required' });
         }
         const code = await engine.requestPairingCode(phoneNumber);
-        res.json({ success: true, pairingCode: code });
+        const formattedCode = code && code.length === 8 ? `${code.slice(0, 4)}-${code.slice(4)}` : code;
+        res.json({ success: true, pairingCode: code, formattedCode });
     }
     catch (err) {
+        console.error('[WhatsApp Worker] Pairing code generation error:', err.message);
         res.status(500).json({ success: false, error: err.message });
     }
 });
