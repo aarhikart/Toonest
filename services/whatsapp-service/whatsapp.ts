@@ -12,6 +12,7 @@ import pino from 'pino';
 import QRCode from 'qrcode';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 
 export class SimpleCacheStore implements CacheStore {
   private store = new Map<string, any>();
@@ -103,11 +104,15 @@ export class MessageStore {
       const oldestKey = this.records.keys().next().value;
       if (oldestKey) this.records.delete(oldestKey);
     }
-    this.records.set(id, record);
+    const cleanId = id.trim();
+    this.records.set(cleanId, record);
+    this.records.set(cleanId.toUpperCase(), record);
+    this.records.set(cleanId.toLowerCase(), record);
+
     if (record.jid) {
-      this.records.set(`${record.jid}:${id}`, record);
+      this.records.set(`${record.jid}:${cleanId}`, record);
       const cleanJid = record.jid.split('@')[0];
-      this.records.set(`${cleanJid}:${id}`, record);
+      this.records.set(`${cleanJid}:${cleanId}`, record);
     }
     this.scheduleSave();
   }
@@ -123,20 +128,22 @@ export class MessageStore {
 
   public getRecord(id: string, remoteJid?: string): CachedMessageRecord | undefined {
     if (!id) return undefined;
-    let rec = this.records.get(id);
+    const cleanId = id.trim();
+    let rec = this.records.get(cleanId) || this.records.get(cleanId.toUpperCase()) || this.records.get(cleanId.toLowerCase());
     if (rec) return rec;
 
     if (remoteJid) {
-      rec = this.records.get(`${remoteJid}:${id}`);
+      rec = this.records.get(`${remoteJid}:${cleanId}`) || this.records.get(`${remoteJid}:${cleanId.toUpperCase()}`);
       if (rec) return rec;
       const cleanJid = remoteJid.split('@')[0];
-      rec = this.records.get(`${cleanJid}:${id}`);
+      rec = this.records.get(`${cleanJid}:${cleanId}`) || this.records.get(`${cleanJid}:${cleanId.toUpperCase()}`);
       if (rec) return rec;
     }
 
-    // Secondary scan for compound key match
+    // Secondary scan for compound key match (handles LID retry requests)
+    const upperId = cleanId.toUpperCase();
     for (const [k, v] of this.records.entries()) {
-      if (k.endsWith(`:${id}`) || k.includes(id)) {
+      if (k.toUpperCase().endsWith(`:${upperId}`) || k.toUpperCase() === upperId) {
         return v;
       }
     }
@@ -196,6 +203,8 @@ export class WhatsAppSessionEngine {
   private sessionDir: string;
   private reconnectAttempts = 0;
   private isExplicitLogout = false;
+  private isConnecting = false;
+  private reconnectTimer: NodeJS.Timeout | null = null;
   private messageStore: MessageStore;
   private msgRetryCounterCache = new SimpleCacheStore();
   private userDevicesCache = new SimpleCacheStore();
@@ -207,6 +216,48 @@ export class WhatsAppSessionEngine {
       fs.mkdirSync(this.sessionDir, { recursive: true });
     }
     this.messageStore = new MessageStore(this.sessionDir);
+  }
+
+  /**
+   * Destroys existing socket and clears all event listeners.
+   * Guarantees that only ONE active WASocket instance exists at any time.
+   */
+  private destroyCurrentSocket(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    if (this.socket) {
+      try {
+        this.socket.ev.removeAllListeners('connection.update');
+        this.socket.ev.removeAllListeners('creds.update');
+        this.socket.ev.removeAllListeners('messages.upsert');
+        this.socket.ev.removeAllListeners('messages.update');
+        const ws = (this.socket as any)?.ws;
+        if (ws && typeof ws.close === 'function') {
+          ws.close();
+        }
+        this.socket.end(undefined);
+      } catch (e) {
+        // Non-fatal cleanup
+      }
+      this.socket = null;
+      console.log('[WhatsApp Worker] Previous WASocket instance cleanly destroyed.');
+    }
+  }
+
+  /**
+   * Debounced single-reconnect scheduler to eliminate socket stampedes.
+   */
+  private scheduleReconnect(delayMs: number): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.initialize();
+    }, delayMs);
   }
 
   public clearSessionFiles(): void {
@@ -223,7 +274,17 @@ export class WhatsAppSessionEngine {
   }
 
   public async initialize(): Promise<void> {
-    if (this.state === 'CONNECTED') return;
+    // If already connected and socket is live, avoid duplicate initialization
+    const isSocketReady = this.socket && ((this.socket as any)?.ws?.isOpen ?? (this.socket as any)?.ws?.socket?.readyState === 1);
+    if (this.state === 'CONNECTED' && isSocketReady) {
+      return;
+    }
+    if (this.isConnecting) {
+      return;
+    }
+
+    this.isConnecting = true;
+    this.destroyCurrentSocket();
 
     this.state = 'CONNECTING';
     this.isExplicitLogout = false;
@@ -246,27 +307,13 @@ export class WhatsAppSessionEngine {
         generateHighQualityLinkPreview: false,
         msgRetryCounterCache: this.msgRetryCounterCache,
         userDevicesCache: this.userDevicesCache,
+        emitOwnEvents: true,
         getMessage: async (key: proto.IMessageKey): Promise<proto.IMessage | undefined> => {
           if (!key?.id) return undefined;
-          const record = this.messageStore.getRecord(key.id);
-          const msg = record?.message || this.messageStore.get(key.id, key.remoteJid || undefined);
-          if (msg) {
+          const record = this.messageStore.getRecord(key.id, key.remoteJid || undefined);
+          if (record?.message) {
             console.log(`[WhatsApp Worker] Responding to Signal retry request for message ID: ${key.id} (remote: ${key.remoteJid})`);
-            // Proactive reinforcement: if decryption struggled or arrived via LID, ensure recipient phone gets a reliable copy
-            if (record && record.jid) {
-              const targetJid = record.jid;
-              setTimeout(async () => {
-                try {
-                  if (this.socket && this.state === 'CONNECTED' && record.text) {
-                    console.log(`[WhatsApp Worker] Delivering reinforced copy to ${targetJid} (original ID: ${key.id})...`);
-                    await this.socket.sendMessage(targetJid, { text: record.text });
-                  }
-                } catch (e: any) {
-                  console.warn('[WhatsApp Worker] Reinforcement notice:', e.message);
-                }
-              }, 1200);
-            }
-            return msg;
+            return record.message;
           }
           console.warn(`[WhatsApp Worker] Signal retry requested for ID ${key.id}, but not found in messageStore.`);
           return undefined;
@@ -316,13 +363,16 @@ export class WhatsAppSessionEngine {
       this.socket.ev.on('connection.update', async update => {
         const { connection, lastDisconnect, qr } = update;
 
-        if (qr && this.state !== 'WAITING_FOR_PAIRING') {
-          try {
-            this.qrCodeDataUrl = await QRCode.toDataURL(qr, { margin: 2, scale: 7 });
-            this.state = 'QR_CODE_REQUIRED';
-            console.log('[WhatsApp Worker] Generated brand new QR Code data URL');
-          } catch (e) {
-            console.error('[WhatsApp Worker] Error rendering QR code data URL', e);
+        if (qr) {
+          // Never overwrite connected state or pairing state with QR code
+          if (this.state !== 'CONNECTED' && this.state !== 'WAITING_FOR_PAIRING') {
+            try {
+              this.qrCodeDataUrl = await QRCode.toDataURL(qr, { margin: 2, scale: 7 });
+              this.state = 'QR_CODE_REQUIRED';
+              console.log('[WhatsApp Worker] Generated brand new QR Code data URL');
+            } catch (e) {
+              console.error('[WhatsApp Worker] Error rendering QR code data URL', e);
+            }
           }
         }
 
@@ -330,52 +380,56 @@ export class WhatsAppSessionEngine {
           const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
           console.log(`[WhatsApp Worker] Connection closed. Status: ${statusCode}, Current State: ${this.state}`);
 
-          // CRITICAL: If waiting for the user to type the pairing code on their phone,
-          // DO NOT wipe creds! The pairing noise keys must be preserved for WhatsApp to finish linking!
+          // Status 515 = Baileys stream restart required after initial handshake
+          if (statusCode === 515) {
+            console.log('[WhatsApp Worker] Baileys stream restart required (515). Reconnecting immediately with session...');
+            this.state = 'CONNECTING';
+            this.scheduleReconnect(500);
+            return;
+          }
+
+          // Preserve noise keys when user is typing pairing code on mobile
           if (this.state === 'WAITING_FOR_PAIRING') {
             console.log('[WhatsApp Worker] Connection closed during pairing code entry. Reconnecting with pairing keys intact...');
             const shouldReconnect = !this.isExplicitLogout;
             if (shouldReconnect) {
-              setTimeout(() => this.initialize(), 1500);
+              this.scheduleReconnect(1500);
             }
             return;
           }
 
-          this.user = null;
-          this.qrCodeDataUrl = null;
-          this.pairingCode = null;
-
-          // Resilient 401 handling: WhatsApp occasionally drops socket on temporary rate limits or key renegotiations.
-          // Only permanently wipe if user explicitly requested logout or after 3 consecutive failed reconnect attempts.
+          // Resilient 401 handling
           if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
             if (this.isExplicitLogout || this.reconnectAttempts >= 3) {
               console.log('[WhatsApp Worker] Permanent logout confirmed. Wiping session files and restarting...');
               this.clearSessionFiles();
               this.state = 'DISCONNECTED';
+              this.user = null;
+              this.qrCodeDataUrl = null;
+              this.pairingCode = null;
               this.reconnectAttempts = 0;
-              setTimeout(() => this.initialize(), 1000);
+              this.scheduleReconnect(1000);
               return;
             } else {
               console.log(`[WhatsApp Worker] 401 close intercepted. Reconnect attempt ${this.reconnectAttempts + 1}/3 with existing keys before wiping...`);
               this.reconnectAttempts++;
-              setTimeout(() => this.initialize(), 2000);
+              this.scheduleReconnect(2000);
               return;
             }
           }
 
           const shouldReconnect = !this.isExplicitLogout;
-
           if (shouldReconnect) {
             this.state = 'RECONNECTING';
-            const delay = Math.min(6000, Math.pow(2, Math.min(this.reconnectAttempts, 3)) * 1000);
+            const delay = Math.min(5000, 1000 * (this.reconnectAttempts + 1));
             this.reconnectAttempts++;
-            setTimeout(() => this.initialize(), delay);
+            this.scheduleReconnect(delay);
           } else {
             this.state = 'DISCONNECTED';
+            this.user = null;
+            this.qrCodeDataUrl = null;
+            this.pairingCode = null;
             this.reconnectAttempts = 0;
-            if (!this.isExplicitLogout) {
-              setTimeout(() => this.initialize(), 1500);
-            }
           }
         } else if (connection === 'open') {
           this.state = 'CONNECTED';
@@ -383,6 +437,11 @@ export class WhatsAppSessionEngine {
           this.qrCodeDataUrl = null;
           this.pairingCode = null;
           this.lastConnectedAt = new Date().toISOString();
+
+          if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+          }
 
           const me = this.socket?.user;
           const phone = me?.id ? me.id.split(':')[0] : null;
@@ -400,7 +459,9 @@ export class WhatsAppSessionEngine {
       console.error('[WhatsApp Worker] Failed to initialize Baileys session', err);
       this.clearSessionFiles();
       this.state = 'DISCONNECTED';
-      setTimeout(() => this.initialize(), 2000);
+      this.scheduleReconnect(2000);
+    } finally {
+      this.isConnecting = false;
     }
   }
 
@@ -438,7 +499,8 @@ export class WhatsAppSessionEngine {
 
     // Wait until WebSocket is ready to receive requests
     for (let i = 0; i < 25; i++) {
-      if (this.socket && (this.socket as any).ws?.readyState === 1) break;
+      const isReady = (this.socket as any)?.ws?.isOpen ?? ((this.socket as any)?.ws?.socket?.readyState === 1);
+      if (this.socket && isReady) break;
       await new Promise(r => setTimeout(r, 200));
     }
 
@@ -452,16 +514,8 @@ export class WhatsAppSessionEngine {
 
   public async logout(clearCredentials = true): Promise<void> {
     this.isExplicitLogout = true;
-    try {
-      if (this.socket) {
-        await this.socket.logout().catch(() => {});
-        this.socket.end(undefined);
-      }
-    } catch (e) {
-      // Ignore
-    }
+    this.destroyCurrentSocket();
 
-    this.socket = null;
     this.state = 'DISCONNECTED';
     this.qrCodeDataUrl = null;
     this.pairingCode = null;
@@ -471,9 +525,7 @@ export class WhatsAppSessionEngine {
       this.clearSessionFiles();
     }
 
-    setTimeout(() => {
-      this.initialize();
-    }, 1000);
+    this.scheduleReconnect(1000);
   }
 
   public async sendMessage(
@@ -508,19 +560,21 @@ export class WhatsAppSessionEngine {
     text: string,
     media?: { buffer: Buffer; mimetype: string; fileName?: string; isImage?: boolean }
   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
-    // If socket is briefly reconnecting or negotiating, wait up to 10s before failing
-    if (this.state !== 'CONNECTED' || !this.socket) {
-      console.log(`[WhatsApp Worker] Socket state is ${this.state}. Waiting up to 10s for connection to stabilize...`);
-      for (let i = 0; i < 20; i++) {
-        await new Promise(r => setTimeout(r, 500));
-        if (this.state === 'CONNECTED' && this.socket) break;
+    // 1. Ensure socket is CONNECTED and WebSocket is open
+    for (let i = 0; i < 25; i++) {
+      const wsOpen = (this.socket as any)?.ws?.isOpen ?? ((this.socket as any)?.ws?.socket?.readyState === 1);
+      if (this.state === 'CONNECTED' && this.socket && wsOpen) {
+        break;
       }
+      console.log(`[WhatsApp Worker] Waiting for socket readiness (state: ${this.state}, wsOpen: ${wsOpen})... (${i + 1}/25)`);
+      await new Promise(r => setTimeout(r, 400));
     }
 
-    if (this.state !== 'CONNECTED' || !this.socket) {
+    const wsOpen = (this.socket as any)?.ws?.isOpen ?? ((this.socket as any)?.ws?.socket?.readyState === 1);
+    if (this.state !== 'CONNECTED' || !this.socket || !wsOpen) {
       return {
         success: false,
-        error: `WhatsApp session is currently ${this.state}. Please make sure your phone is connected.`
+        error: `WhatsApp socket is not open (state: ${this.state}, wsOpen: ${wsOpen}). Please verify your connection.`
       };
     }
 
@@ -552,7 +606,7 @@ export class WhatsAppSessionEngine {
     }
 
     try {
-      // Pre-validate onWhatsApp to ensure contact exists and resolve correct JID
+      // Pre-validate onWhatsApp
       try {
         const results = await this.socket.onWhatsApp(clean);
         if (results && results.length > 0) {
@@ -568,55 +622,79 @@ export class WhatsAppSessionEngine {
         console.warn('[WhatsApp Worker] onWhatsApp lookup warning:', e);
       }
 
-      // Step 1: Pre-warm Signal E2EE session by subscribing to recipient presence
-      console.log(`[WhatsApp Worker] Pre-warming contact ${jid} with presence & composing state...`);
-      try {
-        await this.socket.presenceSubscribe(jid);
-      } catch (e) {
-        // Non-fatal
-      }
-
-      // Step 2: Send 'composing' typing status so recipient phone wakes up and aligns Signal prekeys
+      // Send composing indicator politely (NO presenceSubscribe which causes 408 on unfamiliar numbers)
       try {
         await this.socket.sendPresenceUpdate('composing', jid);
       } catch (e) {
         // Non-fatal
       }
 
-      // Pause 2000ms while "typing" to give recipient phone time to wake up and finalize Signal session
-      await new Promise(r => setTimeout(r, 2000));
+      // Pre-generate unique message ID so it can be cached in MessageStore BEFORE send
+      // Standard Baileys 3EB0 prefix + 16 random hex chars
+      const msgId = '3EB0' + crypto.randomBytes(8).toString('hex').toUpperCase();
 
-      // Step 3: Dispatch message
+      // Pre-construct proto message for instant Signal retry response
+      let protoMessage: proto.IMessage;
+      if (media) {
+        if (media.isImage) {
+          protoMessage = {
+            imageMessage: {
+              caption: cleanText || undefined,
+              mimetype: media.mimetype
+            }
+          };
+        } else {
+          protoMessage = {
+            documentMessage: {
+              caption: cleanText || undefined,
+              mimetype: media.mimetype,
+              fileName: media.fileName || 'document.pdf'
+            }
+          };
+        }
+      } else {
+        protoMessage = {
+          conversation: cleanText,
+          extendedTextMessage: {
+            text: cleanText
+          }
+        };
+      }
+
+      // Cache IMMEDIATELY in messageStore before dispatching over socket
+      this.messageStore.setRecord(msgId, {
+        id: msgId,
+        jid,
+        message: protoMessage,
+        text: cleanText,
+        hasMedia: !!media,
+        timestamp: Date.now()
+      });
+
+      // Dispatch message with our pre-registered messageId
       let sentMsg: proto.WebMessageInfo | undefined;
-
       if (media) {
         if (media.isImage) {
           sentMsg = await this.socket.sendMessage(jid, {
             image: media.buffer,
             caption: cleanText || undefined
-          });
+          }, { messageId: msgId });
         } else {
           sentMsg = await this.socket.sendMessage(jid, {
             document: media.buffer,
             mimetype: media.mimetype,
             fileName: media.fileName || 'document.pdf',
             caption: cleanText || undefined
-          });
+          }, { messageId: msgId });
         }
       } else {
-        sentMsg = await this.socket.sendMessage(jid, { text: cleanText });
+        sentMsg = await this.socket.sendMessage(jid, {
+          text: cleanText
+        }, { messageId: msgId });
       }
 
-      // Step 4: Clear typing indicator
-      try {
-        await this.socket.sendPresenceUpdate('paused', jid);
-      } catch (e) {
-        // Non-fatal
-      }
-
-      // Cache the message in MessageStore with full metadata for Signal retry delivery
-      const msgId = sentMsg?.key?.id;
-      if (msgId && sentMsg?.message) {
+      // If Baileys returned full message proto, update our cached record with the exact proto
+      if (sentMsg?.message) {
         this.messageStore.setRecord(msgId, {
           id: msgId,
           jid,
@@ -625,17 +703,23 @@ export class WhatsAppSessionEngine {
           hasMedia: !!media,
           timestamp: Date.now()
         });
-        console.log(`[WhatsApp Worker] Message cached with metadata: ${jid} (ID: ${msgId})`);
       }
-      console.log(`[WhatsApp Worker] Message dispatched to ${jid} (ID: ${msgId})`);
 
-      // Step 5: Critical Settling Delay (2000ms)
-      // Ensures Signal ratchet state is fully committed before the next contact can begin
-      await new Promise(r => setTimeout(r, 2000));
+      // Clear typing indicator
+      try {
+        await this.socket.sendPresenceUpdate('paused', jid);
+      } catch (e) {
+        // Non-fatal
+      }
+
+      console.log(`[WhatsApp Worker] Message successfully dispatched to ${jid} (ID: ${msgId})`);
+
+      // Allow Signal ratchet state 1200ms to commit
+      await new Promise(r => setTimeout(r, 1200));
 
       return {
         success: true,
-        messageId: msgId || undefined
+        messageId: msgId
       };
     } catch (err: any) {
       console.error(`[WhatsApp Worker] Failed to send message to ${jid}:`, err);

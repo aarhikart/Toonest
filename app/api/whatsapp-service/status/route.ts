@@ -12,7 +12,7 @@ let isStarting = false;
 function ensureWorkerRunning() {
   if (isStarting) return;
   isStarting = true;
-  setTimeout(() => { isStarting = false; }, 10000);
+  setTimeout(() => { isStarting = false; }, 60000);
 
   const serverScript = path.resolve(process.cwd(), 'services', 'whatsapp-service', 'dist', 'server.js');
   if (fs.existsSync(serverScript)) {
