@@ -36,12 +36,101 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.WhatsAppSessionEngine = void 0;
+exports.WhatsAppSessionEngine = exports.MessageStore = exports.SimpleCacheStore = void 0;
 const baileys_1 = __importStar(require("@whiskeysockets/baileys"));
 const pino_1 = __importDefault(require("pino"));
 const qrcode_1 = __importDefault(require("qrcode"));
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
+class SimpleCacheStore {
+    store = new Map();
+    get(key) {
+        return this.store.get(key);
+    }
+    set(key, value) {
+        this.store.set(key, value);
+    }
+    del(key) {
+        this.store.delete(key);
+    }
+    flushAll() {
+        this.store.clear();
+    }
+}
+exports.SimpleCacheStore = SimpleCacheStore;
+class MessageStore {
+    messages = new Map();
+    storeFilePath;
+    maxEntries = 3000;
+    saveTimeout = null;
+    constructor(sessionDir) {
+        this.storeFilePath = path_1.default.join(sessionDir, 'message_store.json');
+        this.loadFromDisk();
+    }
+    loadFromDisk() {
+        try {
+            if (fs_1.default.existsSync(this.storeFilePath)) {
+                const raw = fs_1.default.readFileSync(this.storeFilePath, 'utf-8');
+                const parsed = JSON.parse(raw, baileys_1.BufferJSON.reviver);
+                if (parsed && typeof parsed === 'object') {
+                    for (const [key, val] of Object.entries(parsed)) {
+                        this.messages.set(key, val);
+                    }
+                    console.log(`[WhatsApp Worker] Loaded ${this.messages.size} cached messages from store.`);
+                }
+            }
+        }
+        catch (e) {
+            console.warn('[WhatsApp Worker] Could not load message store from disk:', e);
+        }
+    }
+    scheduleSave() {
+        if (this.saveTimeout)
+            return;
+        this.saveTimeout = setTimeout(() => {
+            this.saveTimeout = null;
+            try {
+                const obj = {};
+                for (const [k, v] of this.messages.entries()) {
+                    obj[k] = v;
+                }
+                fs_1.default.writeFileSync(this.storeFilePath, JSON.stringify(obj, baileys_1.BufferJSON.replacer), 'utf-8');
+            }
+            catch (e) {
+                console.warn('[WhatsApp Worker] Failed to save message store to disk:', e);
+            }
+        }, 1500);
+    }
+    set(id, message) {
+        if (!id || !message)
+            return;
+        if (this.messages.size >= this.maxEntries) {
+            const oldestKey = this.messages.keys().next().value;
+            if (oldestKey)
+                this.messages.delete(oldestKey);
+        }
+        this.messages.set(id, message);
+        this.scheduleSave();
+    }
+    get(id) {
+        return this.messages.get(id);
+    }
+    has(id) {
+        return this.messages.has(id);
+    }
+    clear() {
+        this.messages.clear();
+        try {
+            if (fs_1.default.existsSync(this.storeFilePath)) {
+                fs_1.default.unlinkSync(this.storeFilePath);
+            }
+        }
+        catch (e) {
+            // ignore
+        }
+    }
+}
+exports.MessageStore = MessageStore;
 class WhatsAppSessionEngine {
     socket = null;
     state = 'DISCONNECTED';
@@ -52,13 +141,18 @@ class WhatsAppSessionEngine {
     sessionDir;
     reconnectAttempts = 0;
     isExplicitLogout = false;
+    messageStore;
+    msgRetryCounterCache = new SimpleCacheStore();
+    userDevicesCache = new SimpleCacheStore();
     constructor(sessionDir = './sessions') {
         this.sessionDir = path_1.default.resolve(sessionDir);
         if (!fs_1.default.existsSync(this.sessionDir)) {
             fs_1.default.mkdirSync(this.sessionDir, { recursive: true });
         }
+        this.messageStore = new MessageStore(this.sessionDir);
     }
     clearSessionFiles() {
+        this.messageStore.clear();
         if (fs_1.default.existsSync(this.sessionDir)) {
             try {
                 fs_1.default.rmSync(this.sessionDir, { recursive: true, force: true });
@@ -84,9 +178,30 @@ class WhatsAppSessionEngine {
                 browser: ['ToolNest Web', 'Chrome', '124.0.0.0'],
                 connectTimeoutMs: 60000,
                 keepAliveIntervalMs: 15000,
-                syncFullHistory: false
+                syncFullHistory: false,
+                markOnlineOnConnect: true,
+                msgRetryCounterCache: this.msgRetryCounterCache,
+                userDevicesCache: this.userDevicesCache,
+                getMessage: async (key) => {
+                    if (key?.id) {
+                        const msg = this.messageStore.get(key.id);
+                        if (msg) {
+                            console.log(`[WhatsApp Worker] Responding to Signal retry request for message ID: ${key.id} (remote: ${key.remoteJid})`);
+                            return msg;
+                        }
+                    }
+                    console.warn(`[WhatsApp Worker] Signal retry requested for ID ${key?.id}, but not found in messageStore.`);
+                    return undefined;
+                }
             });
             this.socket.ev.on('creds.update', saveCreds);
+            this.socket.ev.on('messages.upsert', async ({ messages }) => {
+                for (const msg of messages) {
+                    if (msg.key?.id && msg.message) {
+                        this.messageStore.set(msg.key.id, msg.message);
+                    }
+                }
+            });
             this.socket.ev.on('connection.update', async (update) => {
                 const { connection, lastDisconnect, qr } = update;
                 if (qr) {
@@ -256,6 +371,10 @@ class WhatsAppSessionEngine {
                 sentMsg = await this.socket.sendMessage(jid, { text });
             }
             const msgId = sentMsg?.key?.id;
+            if (msgId && sentMsg?.message) {
+                this.messageStore.set(msgId, sentMsg.message);
+                console.log(`[WhatsApp Worker] Message cached for retry delivery: ${jid} (ID: ${msgId})`);
+            }
             console.log(`[WhatsApp Worker] Message dispatched to ${jid} (ID: ${msgId})`);
             return {
                 success: true,
