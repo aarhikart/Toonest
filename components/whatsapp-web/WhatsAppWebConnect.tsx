@@ -200,7 +200,8 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
 
   const copyPairingCode = () => {
     if (!realPairingCode) return;
-    navigator.clipboard.writeText(realPairingCode);
+    const clean = realPairingCode.replace(/[^A-Za-z0-9]/g, '');
+    navigator.clipboard.writeText(clean);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -449,10 +450,12 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
                 type="text"
                 value={phoneNumberInput}
                 onChange={e => setPhoneNumberInput(e.target.value)}
-                placeholder="+12025550192 or +919876543210"
+                placeholder="e.g. 9876543210 or +919876543210"
                 className="w-full text-xs font-mono p-3 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-[#5722AF]"
               />
-              <p className="text-[10px] text-zinc-500 mt-1">Must include country code without spaces or dashes.</p>
+              <p className="text-[10px] text-zinc-500 mt-1">
+                Enter your 10-digit number (India +91 is auto-added) or include international country code.
+              </p>
             </div>
 
             {pairingError && (
@@ -478,13 +481,15 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
                 <span className="text-[11px] font-semibold text-purple-700 dark:text-purple-300 uppercase tracking-wider">
                   Official WhatsApp Pairing Code
                 </span>
-                <div className="text-3xl font-black font-mono tracking-widest text-[#5722AF] dark:text-purple-200 select-all py-1">
-                  {realPairingCode}
+                <div className="text-4xl font-black font-mono tracking-widest text-[#5722AF] dark:text-purple-200 select-all py-1">
+                  {realPairingCode.length === 8
+                    ? `${realPairingCode.slice(0, 4)}-${realPairingCode.slice(4)}`
+                    : realPairingCode}
                 </div>
                 <div className="flex justify-center gap-2">
                   <button
                     onClick={copyPairingCode}
-                    className="px-3.5 py-1.5 bg-white dark:bg-zinc-800 border border-purple-200 dark:border-purple-700 rounded-lg text-xs font-semibold text-purple-800 dark:text-purple-200 flex items-center gap-1.5 shadow-2xs"
+                    className="px-3.5 py-1.5 bg-white dark:bg-zinc-800 border border-purple-200 dark:border-purple-700 rounded-lg text-xs font-semibold text-purple-800 dark:text-purple-200 flex items-center gap-1.5 shadow-2xs hover:bg-purple-50 transition"
                   >
                     {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
                     {copied ? 'Copied' : 'Copy Code'}
@@ -498,10 +503,11 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
               <div className="p-4 bg-zinc-50 dark:bg-zinc-800/50 rounded-2xl border border-zinc-200 dark:border-zinc-700 space-y-2 text-xs">
                 <h4 className="font-semibold text-zinc-800 dark:text-zinc-200">How to enter code on WhatsApp:</h4>
                 <ol className="text-zinc-600 dark:text-zinc-400 space-y-1.5 list-decimal list-inside leading-relaxed">
-                  <li>Open <strong>WhatsApp &gt; Settings / Menu &gt; Linked Devices</strong></li>
+                  <li>Open WhatsApp on your phone</li>
+                  <li>Tap <strong>Settings / Menu (3 dots) &gt; Linked Devices</strong></li>
                   <li>Tap <strong>Link a Device</strong></li>
                   <li>Tap <strong>Link with phone number instead</strong> at the bottom</li>
-                  <li>Enter the official 8-digit code shown above</li>
+                  <li>Enter the official 8-character code shown above</li>
                 </ol>
               </div>
             )}

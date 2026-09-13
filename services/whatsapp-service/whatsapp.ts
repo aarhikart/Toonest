@@ -4,7 +4,8 @@ import makeWASocket, {
   WASocket,
   proto,
   BufferJSON,
-  CacheStore
+  CacheStore,
+  Browsers
 } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import QRCode from 'qrcode';
@@ -175,7 +176,7 @@ export class WhatsAppSessionEngine {
         auth: authState,
         printQRInTerminal: false,
         logger: pino({ level: 'silent' }),
-        browser: ['ToolNest Web', 'Chrome', '124.0.0.0'],
+        browser: Browsers.ubuntu('Chrome'),
         connectTimeoutMs: 60000,
         keepAliveIntervalMs: 15000,
         syncFullHistory: false,
@@ -208,7 +209,7 @@ export class WhatsAppSessionEngine {
       this.socket.ev.on('connection.update', async update => {
         const { connection, lastDisconnect, qr } = update;
 
-        if (qr) {
+        if (qr && this.state !== 'WAITING_FOR_PAIRING') {
           try {
             this.qrCodeDataUrl = await QRCode.toDataURL(qr, { margin: 2, scale: 7 });
             this.state = 'QR_CODE_REQUIRED';
@@ -220,13 +221,24 @@ export class WhatsAppSessionEngine {
 
         if (connection === 'close') {
           const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
-          console.log(`[WhatsApp Worker] Connection closed. Status: ${statusCode}`);
+          console.log(`[WhatsApp Worker] Connection closed. Status: ${statusCode}, Current State: ${this.state}`);
+
+          // CRITICAL: If waiting for the user to type the pairing code on their phone,
+          // DO NOT wipe creds! The pairing noise keys must be preserved for WhatsApp to finish linking!
+          if (this.state === 'WAITING_FOR_PAIRING') {
+            console.log('[WhatsApp Worker] Connection closed during pairing code entry. Reconnecting with pairing keys intact...');
+            const shouldReconnect = !this.isExplicitLogout;
+            if (shouldReconnect) {
+              setTimeout(() => this.initialize(), 1500);
+            }
+            return;
+          }
 
           this.user = null;
           this.qrCodeDataUrl = null;
           this.pairingCode = null;
 
-          // Critical fix: If WhatsApp revoked credentials (401 / loggedOut), wipe dead keys immediately
+          // Critical fix: If WhatsApp revoked credentials (401 / loggedOut) on a previously connected session, wipe dead keys
           if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
             console.log('[WhatsApp Worker] Stale session detected (401). Wiping dead keys and restarting...');
             this.clearSessionFiles();
@@ -278,18 +290,48 @@ export class WhatsAppSessionEngine {
   }
 
   public async requestPairingCode(phoneNumber: string): Promise<string> {
-    const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
-    if (!cleanNumber || cleanNumber.length < 8) {
+    let cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
+    if (!cleanNumber) {
       throw new Error('Valid phone number with country code is required.');
+    }
+
+    // Smart country code normalization: If 10 digits, default to India +91
+    if (cleanNumber.length === 10) {
+      cleanNumber = '91' + cleanNumber;
+    } else if (cleanNumber.length === 11 && cleanNumber.startsWith('0')) {
+      cleanNumber = '91' + cleanNumber.slice(1);
+    }
+
+    if (cleanNumber.length < 10 || cleanNumber.length > 15) {
+      throw new Error(`Invalid phone number (+${cleanNumber}). Must include country code without spaces (e.g. +919876543210).`);
+    }
+
+    // If currently connected to an account:
+    if (this.state === 'CONNECTED') {
+      const currentDigits = this.user?.phoneNumber?.replace(/[^0-9]/g, '');
+      if (currentDigits && (currentDigits === cleanNumber || currentDigits.endsWith(cleanNumber) || cleanNumber.endsWith(currentDigits))) {
+        throw new Error(`WhatsApp is already connected as +${cleanNumber}. No need to pair again!`);
+      }
+      console.log(`[WhatsApp Worker] Switching WhatsApp account to +${cleanNumber}. Logging out existing session...`);
+      await this.logout(true);
+      await new Promise(r => setTimeout(r, 1500));
     }
 
     if (!this.socket) {
       await this.initialize();
     }
 
+    // Wait until WebSocket is ready to receive requests
+    for (let i = 0; i < 25; i++) {
+      if (this.socket && (this.socket as any).ws?.readyState === 1) break;
+      await new Promise(r => setTimeout(r, 200));
+    }
+
     this.state = 'WAITING_FOR_PAIRING';
+    console.log(`[WhatsApp Worker] Requesting official WhatsApp pairing code for +${cleanNumber}...`);
     const code = await this.socket!.requestPairingCode(cleanNumber);
     this.pairingCode = code;
+    console.log(`[WhatsApp Worker] Official pairing code generated: ${code} for +${cleanNumber}`);
     return code;
   }
 
