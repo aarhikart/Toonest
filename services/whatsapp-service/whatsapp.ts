@@ -1,6 +1,7 @@
 import makeWASocket, {
   DisconnectReason,
   useMultiFileAuthState,
+  makeCacheableSignalKeyStore,
   WASocket,
   proto,
   BufferJSON,
@@ -32,10 +33,19 @@ export class SimpleCacheStore implements CacheStore {
   }
 }
 
+export interface CachedMessageRecord {
+  id: string;
+  jid: string;
+  message: proto.IMessage;
+  text?: string;
+  hasMedia?: boolean;
+  timestamp: number;
+}
+
 export class MessageStore {
-  private messages = new Map<string, proto.IMessage>();
+  private records = new Map<string, CachedMessageRecord>();
   private storeFilePath: string;
-  private maxEntries = 5000;
+  private maxEntries = 3000;
   private saveTimeout: NodeJS.Timeout | null = null;
 
   constructor(sessionDir: string) {
@@ -50,9 +60,20 @@ export class MessageStore {
         const parsed = JSON.parse(raw, BufferJSON.reviver);
         if (parsed && typeof parsed === 'object') {
           for (const [key, val] of Object.entries(parsed)) {
-            this.messages.set(key, val as proto.IMessage);
+            const rec = val as any;
+            if (rec && rec.message) {
+              this.records.set(key, rec as CachedMessageRecord);
+            } else if (rec && typeof rec === 'object') {
+              // Backward compatibility for raw proto objects
+              this.records.set(key, {
+                id: key,
+                jid: '',
+                message: rec as proto.IMessage,
+                timestamp: Date.now()
+              });
+            }
           }
-          console.log(`[WhatsApp Worker] Loaded ${this.messages.size} cached messages from store.`);
+          console.log(`[WhatsApp Worker] Loaded ${this.records.size} cached message records from store.`);
         }
       }
     } catch (e) {
@@ -65,8 +86,8 @@ export class MessageStore {
     this.saveTimeout = setTimeout(() => {
       this.saveTimeout = null;
       try {
-        const obj: Record<string, proto.IMessage> = {};
-        for (const [k, v] of this.messages.entries()) {
+        const obj: Record<string, CachedMessageRecord> = {};
+        for (const [k, v] of this.records.entries()) {
           obj[k] = v;
         }
         fs.writeFileSync(this.storeFilePath, JSON.stringify(obj, BufferJSON.replacer), 'utf-8');
@@ -76,36 +97,45 @@ export class MessageStore {
     }, 1000);
   }
 
-  public set(id: string, message: proto.IMessage, remoteJid?: string): void {
-    if (!id || !message) return;
-    if (this.messages.size >= this.maxEntries) {
-      const oldestKey = this.messages.keys().next().value;
-      if (oldestKey) this.messages.delete(oldestKey);
+  public setRecord(id: string, record: CachedMessageRecord): void {
+    if (!id || !record || !record.message) return;
+    if (this.records.size >= this.maxEntries) {
+      const oldestKey = this.records.keys().next().value;
+      if (oldestKey) this.records.delete(oldestKey);
     }
-    this.messages.set(id, message);
-    if (remoteJid) {
-      this.messages.set(`${remoteJid}:${id}`, message);
-      const cleanJid = remoteJid.split('@')[0];
-      this.messages.set(`${cleanJid}:${id}`, message);
+    this.records.set(id, record);
+    if (record.jid) {
+      this.records.set(`${record.jid}:${id}`, record);
+      const cleanJid = record.jid.split('@')[0];
+      this.records.set(`${cleanJid}:${id}`, record);
     }
     this.scheduleSave();
   }
 
-  public get(id: string, remoteJid?: string): proto.IMessage | undefined {
+  public set(id: string, message: proto.IMessage, remoteJid?: string): void {
+    this.setRecord(id, {
+      id,
+      jid: remoteJid || '',
+      message,
+      timestamp: Date.now()
+    });
+  }
+
+  public getRecord(id: string, remoteJid?: string): CachedMessageRecord | undefined {
     if (!id) return undefined;
-    let msg = this.messages.get(id);
-    if (msg) return msg;
+    let rec = this.records.get(id);
+    if (rec) return rec;
 
     if (remoteJid) {
-      msg = this.messages.get(`${remoteJid}:${id}`);
-      if (msg) return msg;
+      rec = this.records.get(`${remoteJid}:${id}`);
+      if (rec) return rec;
       const cleanJid = remoteJid.split('@')[0];
-      msg = this.messages.get(`${cleanJid}:${id}`);
-      if (msg) return msg;
+      rec = this.records.get(`${cleanJid}:${id}`);
+      if (rec) return rec;
     }
 
     // Secondary scan for compound key match
-    for (const [k, v] of this.messages.entries()) {
+    for (const [k, v] of this.records.entries()) {
       if (k.endsWith(`:${id}`) || k.includes(id)) {
         return v;
       }
@@ -114,12 +144,16 @@ export class MessageStore {
     return undefined;
   }
 
+  public get(id: string, remoteJid?: string): proto.IMessage | undefined {
+    return this.getRecord(id, remoteJid)?.message;
+  }
+
   public has(id: string): boolean {
-    return this.messages.has(id);
+    return this.records.has(id);
   }
 
   public clear(): void {
-    this.messages.clear();
+    this.records.clear();
     try {
       if (fs.existsSync(this.storeFilePath)) {
         fs.unlinkSync(this.storeFilePath);
@@ -198,35 +232,83 @@ export class WhatsAppSessionEngine {
       const { state: authState, saveCreds } = await useMultiFileAuthState(this.sessionDir);
 
       this.socket = makeWASocket({
-        auth: authState,
+        auth: {
+          creds: authState.creds,
+          keys: makeCacheableSignalKeyStore(authState.keys, pino({ level: 'silent' }))
+        },
         printQRInTerminal: false,
         logger: pino({ level: 'silent' }),
-        browser: Browsers.ubuntu('Chrome'),
+        browser: Browsers.appropriate('Chrome'),
         connectTimeoutMs: 60000,
         keepAliveIntervalMs: 15000,
         syncFullHistory: false,
         markOnlineOnConnect: true,
+        generateHighQualityLinkPreview: false,
         msgRetryCounterCache: this.msgRetryCounterCache,
         userDevicesCache: this.userDevicesCache,
         getMessage: async (key: proto.IMessageKey): Promise<proto.IMessage | undefined> => {
-          if (key?.id) {
-            const msg = this.messageStore.get(key.id, key.remoteJid || undefined);
-            if (msg) {
-              console.log(`[WhatsApp Worker] Responding to Signal retry request for message ID: ${key.id} (remote: ${key.remoteJid})`);
-              return msg;
+          if (!key?.id) return undefined;
+          const record = this.messageStore.getRecord(key.id);
+          const msg = record?.message || this.messageStore.get(key.id, key.remoteJid || undefined);
+          if (msg) {
+            console.log(`[WhatsApp Worker] Responding to Signal retry request for message ID: ${key.id} (remote: ${key.remoteJid})`);
+            // Proactive reinforcement: if decryption struggled or arrived via LID, ensure recipient phone gets a reliable copy
+            if (record && record.jid) {
+              const targetJid = record.jid;
+              setTimeout(async () => {
+                try {
+                  if (this.socket && this.state === 'CONNECTED' && record.text) {
+                    console.log(`[WhatsApp Worker] Delivering reinforced copy to ${targetJid} (original ID: ${key.id})...`);
+                    await this.socket.sendMessage(targetJid, { text: record.text });
+                  }
+                } catch (e: any) {
+                  console.warn('[WhatsApp Worker] Reinforcement notice:', e.message);
+                }
+              }, 1200);
             }
+            return msg;
           }
-          console.warn(`[WhatsApp Worker] Signal retry requested for ID ${key?.id}, but not found in messageStore.`);
+          console.warn(`[WhatsApp Worker] Signal retry requested for ID ${key.id}, but not found in messageStore.`);
           return undefined;
         }
       });
 
       this.socket.ev.on('creds.update', saveCreds);
 
+      // Only store real user messages to prevent storage bloat and protocol desync
       this.socket.ev.on('messages.upsert', async ({ messages }) => {
         for (const msg of messages) {
           if (msg.key?.id && msg.message) {
-            this.messageStore.set(msg.key.id, msg.message, msg.key.remoteJid || undefined);
+            const hasContent = !!(
+              msg.message.conversation ||
+              msg.message.extendedTextMessage ||
+              msg.message.imageMessage ||
+              msg.message.documentMessage ||
+              msg.message.videoMessage ||
+              msg.message.audioMessage
+            );
+            if (hasContent) {
+              const text = (msg.message.conversation || msg.message.extendedTextMessage?.text) ?? undefined;
+              this.messageStore.setRecord(msg.key.id, {
+                id: msg.key.id,
+                jid: msg.key.remoteJid || '',
+                message: msg.message,
+                text: text || undefined,
+                hasMedia: !!(msg.message.imageMessage || msg.message.documentMessage),
+                timestamp: Date.now()
+              });
+            }
+          }
+        }
+      });
+
+      // Track confirmed deliveries from recipient devices
+      this.socket.ev.on('messages.update', updates => {
+        for (const u of updates) {
+          if (u.update.status === proto.WebMessageInfo.Status.DELIVERY_ACK) {
+            console.log(`[WhatsApp Worker] Message ${u.key.id} confirmed DELIVERED to recipient device.`);
+          } else if (u.update.status === proto.WebMessageInfo.Status.READ) {
+            console.log(`[WhatsApp Worker] Message ${u.key.id} confirmed READ by recipient.`);
           }
         }
       });
@@ -464,6 +546,11 @@ export class WhatsAppSessionEngine {
 
     let jid = `${clean}@s.whatsapp.net`;
 
+    const cleanText = (text || '').trim();
+    if (!cleanText && !media) {
+      return { success: false, error: 'Cannot send empty message. Text or media is required.' };
+    }
+
     try {
       // Pre-validate onWhatsApp to ensure contact exists and resolve correct JID
       try {
@@ -482,6 +569,7 @@ export class WhatsAppSessionEngine {
       }
 
       // Step 1: Pre-warm Signal E2EE session by subscribing to recipient presence
+      console.log(`[WhatsApp Worker] Pre-warming contact ${jid} with presence & composing state...`);
       try {
         await this.socket.presenceSubscribe(jid);
       } catch (e) {
@@ -495,8 +583,8 @@ export class WhatsAppSessionEngine {
         // Non-fatal
       }
 
-      // Pause 1800ms while "typing" to give recipient phone time to wake up and finalize Signal session
-      await new Promise(r => setTimeout(r, 1800));
+      // Pause 2000ms while "typing" to give recipient phone time to wake up and finalize Signal session
+      await new Promise(r => setTimeout(r, 2000));
 
       // Step 3: Dispatch message
       let sentMsg: proto.WebMessageInfo | undefined;
@@ -505,18 +593,18 @@ export class WhatsAppSessionEngine {
         if (media.isImage) {
           sentMsg = await this.socket.sendMessage(jid, {
             image: media.buffer,
-            caption: text || undefined
+            caption: cleanText || undefined
           });
         } else {
           sentMsg = await this.socket.sendMessage(jid, {
             document: media.buffer,
             mimetype: media.mimetype,
             fileName: media.fileName || 'document.pdf',
-            caption: text || undefined
+            caption: cleanText || undefined
           });
         }
       } else {
-        sentMsg = await this.socket.sendMessage(jid, { text });
+        sentMsg = await this.socket.sendMessage(jid, { text: cleanText });
       }
 
       // Step 4: Clear typing indicator
@@ -526,17 +614,24 @@ export class WhatsAppSessionEngine {
         // Non-fatal
       }
 
-      // Cache the message in MessageStore for Signal retry delivery
+      // Cache the message in MessageStore with full metadata for Signal retry delivery
       const msgId = sentMsg?.key?.id;
       if (msgId && sentMsg?.message) {
-        this.messageStore.set(msgId, sentMsg.message, jid);
-        console.log(`[WhatsApp Worker] Message cached for retry delivery: ${jid} (ID: ${msgId})`);
+        this.messageStore.setRecord(msgId, {
+          id: msgId,
+          jid,
+          message: sentMsg.message,
+          text: cleanText,
+          hasMedia: !!media,
+          timestamp: Date.now()
+        });
+        console.log(`[WhatsApp Worker] Message cached with metadata: ${jid} (ID: ${msgId})`);
       }
       console.log(`[WhatsApp Worker] Message dispatched to ${jid} (ID: ${msgId})`);
 
-      // Step 5: Critical Settling Delay (1200ms)
+      // Step 5: Critical Settling Delay (2000ms)
       // Ensures Signal ratchet state is fully committed before the next contact can begin
-      await new Promise(r => setTimeout(r, 1200));
+      await new Promise(r => setTimeout(r, 2000));
 
       return {
         success: true,

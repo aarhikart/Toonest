@@ -74,13 +74,10 @@ app.post('/logout', verifySecret, async (req, res) => {
         res.status(500).json({ success: false, error: err.message });
     }
 });
-// Restart / Refresh QR code (clears unauthenticated stale session & regenerates fresh QR)
+// Restart / Refresh QR code (unconditionally clears unauthenticated/stale session & regenerates fresh QR)
 app.post('/restart', verifySecret, async (req, res) => {
     try {
-        const current = engine.getStatus();
-        if (current.isConnected) {
-            return res.json({ success: true, message: 'Session is currently connected', status: current });
-        }
+        console.log('[WhatsApp Worker] /restart requested. Wiping session and restarting fresh QR handshake...');
         await engine.logout(true);
         res.json({ success: true, message: 'Wiped session and restarting fresh QR' });
     }
@@ -95,6 +92,9 @@ app.post('/send', verifySecret, async (req, res) => {
         if (!to) {
             return res.status(400).json({ error: 'Recipient phone number (to) is required' });
         }
+        if (!text?.trim() && !mediaBase64) {
+            return res.status(400).json({ error: 'Message text or media is required' });
+        }
         let media;
         if (mediaBase64 && mediaMimeType) {
             media = {
@@ -104,7 +104,7 @@ app.post('/send', verifySecret, async (req, res) => {
                 isImage: isImage ?? mediaMimeType.startsWith('image/')
             };
         }
-        const result = await engine.sendMessage(to, text, media);
+        const result = await engine.sendMessage(to, text?.trim() || '', media);
         res.status(result.success ? 200 : 400).json(result);
     }
     catch (err) {

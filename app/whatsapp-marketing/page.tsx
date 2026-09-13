@@ -89,15 +89,25 @@ export default function WhatsAppMarketingPage() {
     } catch {}
   };
 
-  const handleClearBrowserData = () => {
+  const handleClearBrowserData = async () => {
     const confirmed = window.confirm(
-      'Are you sure you want to delete all stored browser data?\n\nThis will clear:\n• Saved Worker Gateway URLs\n• All Audience Contacts in localStorage\n• Message Templates & Drafts\n• Saved Session Cookies\n\nThe page will reset cleanly.'
+      'Are you sure you want to delete all stored browser data?\n\nThis will clear:\n• Active WhatsApp Worker Session (forces fresh QR code)\n• Saved Worker Gateway URLs\n• All Audience Contacts in localStorage\n• Message Templates & Drafts\n• Saved Session Cookies\n\nThe page will reset cleanly with a brand new QR Code.'
     );
 
     if (!confirmed) return;
 
     try {
-      // 1. Clear all toolnest WhatsApp localStorage keys
+      // 1. Tell backend worker to logout and wipe session files
+      const savedWorkerUrl = typeof window !== 'undefined' ? localStorage.getItem('toolnest_wa_worker_url') || '' : '';
+      const headers: Record<string, string> = {};
+      if (savedWorkerUrl) headers['x-worker-url'] = savedWorkerUrl;
+
+      await fetch('/api/whatsapp-service/logout', {
+        method: 'POST',
+        headers
+      }).catch(() => {});
+
+      // 2. Clear all toolnest WhatsApp localStorage keys
       const keysToRemove: string[] = [];
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);

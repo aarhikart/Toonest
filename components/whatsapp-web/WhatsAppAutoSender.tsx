@@ -100,7 +100,25 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
       contact.status = 'SENDING';
       onContactsUpdate([...currentList]);
 
-      const customizedText = WhatsAppSenderEngine.interpolate(messageTemplate, contact);
+      const customizedText = WhatsAppSenderEngine.interpolate(messageTemplate, contact).trim();
+      if (!customizedText && !media) {
+        contact.status = 'FAILED';
+        onContactsUpdate([...currentList]);
+        setLogs(prev => [
+          {
+            id: `log_${Date.now()}_${i}`,
+            timestamp: new Date().toLocaleTimeString(),
+            contactName: contact.name,
+            phoneNumber: contact.phoneNumber,
+            status: 'FAILED',
+            message: '(Empty message text)',
+            hasAttachment: false,
+            error: 'Cannot send empty message'
+          },
+          ...prev
+        ]);
+        continue;
+      }
 
       // Safe anti-ban & Signal session settlement delay between consecutive contacts
       if (i > 0) {
