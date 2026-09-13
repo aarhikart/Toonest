@@ -8,6 +8,15 @@ const cors_1 = __importDefault(require("cors"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const whatsapp_1 = require("./whatsapp");
 dotenv_1.default.config();
+// Production Process Resilience: Prevent transient Baileys socket closes from crashing the worker daemon
+process.on('unhandledRejection', (reason) => {
+    const msg = reason?.message || String(reason);
+    console.warn('[WhatsApp Worker Daemon] Intercepted unhandledRejection (process kept alive):', msg);
+});
+process.on('uncaughtException', (err) => {
+    const msg = err?.message || String(err);
+    console.warn('[WhatsApp Worker Daemon] Intercepted uncaughtException (process kept alive):', msg);
+});
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 5001;
 const SERVICE_SECRET = process.env.WHATSAPP_SERVICE_SECRET || 'toolnest_secure_service_token_2026';
