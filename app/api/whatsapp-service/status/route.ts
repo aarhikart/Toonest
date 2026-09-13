@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
-import { getWhatsAppServiceUrl, getWhatsAppServiceSecret } from '@/lib/whatsapp-web/config';
+import { getWhatsAppServiceUrl, getWhatsAppServiceSecret, getWorkerHeaders } from '@/lib/whatsapp-web/config';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -46,17 +46,15 @@ export async function GET(req: NextRequest) {
     if (shouldRestart) {
       await fetch(`${serviceUrl}/restart`, {
         method: 'POST',
-        headers: { 'x-service-key': serviceSecret }
+        headers: getWorkerHeaders(serviceSecret)
       }).catch(() => {});
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 4000);
+    const timeout = setTimeout(() => controller.abort(), 8000); // 8s timeout for cloud/tunnel workers
 
     const res = await fetch(`${serviceUrl}/status`, {
-      headers: {
-        'x-service-key': serviceSecret
-      },
+      headers: getWorkerHeaders(serviceSecret),
       signal: controller.signal,
       cache: 'no-store'
     });

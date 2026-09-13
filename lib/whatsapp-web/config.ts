@@ -18,3 +18,14 @@ export function getWhatsAppServiceUrl(req?: NextRequest): string {
 export function getWhatsAppServiceSecret(): string {
   return process.env.WHATSAPP_SERVICE_SECRET || 'toolnest_secure_service_token_2026';
 }
+
+export function getWorkerHeaders(serviceSecret: string = getWhatsAppServiceSecret()): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    'x-service-key': serviceSecret,
+    'Bypass-Tunnel-Reminder': 'true',
+    'bypass-tunnel-reminder': 'true',
+    'ngrok-skip-browser-warning': 'true',
+    'User-Agent': 'ToolNest-WhatsApp-Worker-Proxy'
+  };
+}
