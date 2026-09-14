@@ -136,7 +136,8 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
         try {
           const payload: any = {
             to: contact.phoneNumber,
-            text: customizedText
+            text: customizedText,
+            sendTextSeparately: true
           };
           if (media) {
             payload.mediaBase64 = media.dataUrl.split(',')[1];
@@ -161,9 +162,9 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
 
           let data = await res.json().catch(() => ({}));
 
-          // If failed due to temporary renegotiation, auto-retry once after 3.5 seconds
-          if (!res.ok || !data.success) {
-            console.log('First send attempt encountered issue, waiting 3.5s and retrying once...');
+          // If failed due to temporary server/network error (5xx), auto-retry once after 3.5 seconds
+          if (!res.ok && res.status >= 500) {
+            console.log(`First send attempt encountered status ${res.status}, waiting 3.5s and retrying once...`);
             await new Promise(r => setTimeout(r, 3500));
             res = await fetch('/api/whatsapp-service/send', {
               method: 'POST',

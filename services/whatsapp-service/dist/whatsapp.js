@@ -535,12 +535,12 @@ class WhatsAppSessionEngine {
         }
         this.scheduleReconnect(1000);
     }
-    async sendMessage(phoneNumber, text, media) {
+    async sendMessage(phoneNumber, text, media, options) {
         return new Promise(resolve => {
             this.sendQueue = this.sendQueue
                 .then(async () => {
                 try {
-                    const res = await this.doSendMessage(phoneNumber, text, media);
+                    const res = await this.doSendMessage(phoneNumber, text, media, options);
                     resolve(res);
                 }
                 catch (err) {
@@ -558,7 +558,7 @@ class WhatsAppSessionEngine {
             });
         });
     }
-    async doSendMessage(phoneNumber, text, media) {
+    async doSendMessage(phoneNumber, text, media, options) {
         // 1. Ensure socket is CONNECTED and WebSocket is open
         for (let i = 0; i < 25; i++) {
             const wsOpen = this.socket?.ws?.isOpen ?? (this.socket?.ws?.socket?.readyState === 1);
@@ -616,19 +616,20 @@ class WhatsAppSessionEngine {
             catch (e) {
                 console.warn('[WhatsApp Worker] onWhatsApp lookup warning:', e);
             }
-            // Send composing indicator politely (NO presenceSubscribe which causes 408 on unfamiliar numbers)
+            // Send composing indicator politely to warm up session
             try {
                 await this.socket.sendPresenceUpdate('composing', jid);
+                await new Promise(r => setTimeout(r, 600));
             }
             catch (e) {
                 // Non-fatal
             }
-            // Pre-generate unique message ID so it can be cached in MessageStore BEFORE send
-            // Standard Baileys 3EB0 prefix + 16 random hex chars
-            const msgId = '3EB0' + crypto_1.default.randomBytes(8).toString('hex').toUpperCase();
-            // Construct AnyMessageContent accurately
-            const messageContent = media
-                ? media.isImage
+            let primaryMsgId = '';
+            // If media is present, dispatch media message (with caption)
+            if (media) {
+                const mediaMsgId = '3EB0' + crypto_1.default.randomBytes(8).toString('hex').toUpperCase();
+                primaryMsgId = mediaMsgId;
+                const mediaContent = media.isImage
                     ? {
                         image: media.buffer,
                         caption: cleanText || undefined,
@@ -639,33 +640,85 @@ class WhatsAppSessionEngine {
                         mimetype: media.mimetype,
                         fileName: media.fileName || 'document.pdf',
                         caption: cleanText || undefined
+                    };
+                const fullMediaMsg = await (0, baileys_1.generateWAMessage)(jid, mediaContent, {
+                    userJid: this.socket.user?.id || this.user?.id || this.socket.authState?.creds?.me?.id,
+                    upload: this.socket.waUploadToServer,
+                    messageId: mediaMsgId,
+                    logger: this.socket.logger
+                });
+                if (!fullMediaMsg?.message) {
+                    throw new Error('Failed to generate valid WhatsApp media payload');
+                }
+                // Cache media message in store before send
+                this.messageStore.setRecord(mediaMsgId, {
+                    id: mediaMsgId,
+                    jid,
+                    message: fullMediaMsg.message,
+                    text: cleanText,
+                    hasMedia: true,
+                    timestamp: Date.now()
+                });
+                await this.socket.relayMessage(jid, fullMediaMsg.message, {
+                    messageId: mediaMsgId
+                });
+                console.log(`[WhatsApp Worker] Media message successfully dispatched to ${jid} (ID: ${mediaMsgId})`);
+                // Smart Dual Delivery: If text template is present and separate text delivery is enabled (default true)
+                // Send the complete text template so that new users (who do not auto-download media) immediately see the full text!
+                const shouldSendSeparateText = options?.sendTextSeparately !== false && !!cleanText;
+                if (shouldSendSeparateText) {
+                    await new Promise(r => setTimeout(r, 600));
+                    const textMsgId = '3EB0' + crypto_1.default.randomBytes(8).toString('hex').toUpperCase();
+                    const textContent = { text: cleanText };
+                    const fullTextMsg = await (0, baileys_1.generateWAMessage)(jid, textContent, {
+                        userJid: this.socket.user?.id || this.user?.id || this.socket.authState?.creds?.me?.id,
+                        upload: this.socket.waUploadToServer,
+                        messageId: textMsgId,
+                        logger: this.socket.logger
+                    });
+                    if (fullTextMsg?.message) {
+                        this.messageStore.setRecord(textMsgId, {
+                            id: textMsgId,
+                            jid,
+                            message: fullTextMsg.message,
+                            text: cleanText,
+                            hasMedia: false,
+                            timestamp: Date.now()
+                        });
+                        await this.socket.relayMessage(jid, fullTextMsg.message, {
+                            messageId: textMsgId
+                        });
+                        console.log(`[WhatsApp Worker] Guaranteed text template dispatched to ${jid} (ID: ${textMsgId})`);
                     }
-                : {
-                    text: cleanText
-                };
-            // Generate the FULL, spec-compliant WebMessageInfo (uploads media, computes cryptographic hashes, thumbnail)
-            const fullMsg = await (0, baileys_1.generateWAMessage)(jid, messageContent, {
-                userJid: this.socket.user?.id || this.user?.id || this.socket.authState?.creds?.me?.id,
-                upload: this.socket.waUploadToServer,
-                messageId: msgId,
-                logger: this.socket.logger
-            });
-            if (!fullMsg?.message) {
-                throw new Error('Failed to generate valid WhatsApp message payload');
+                }
             }
-            // Pre-cache the complete, valid protobuf in MessageStore BEFORE dispatching over socket!
-            this.messageStore.setRecord(msgId, {
-                id: msgId,
-                jid,
-                message: fullMsg.message,
-                text: cleanText,
-                hasMedia: !!media,
-                timestamp: Date.now()
-            });
-            // Dispatch message over socket using relayMessage
-            await this.socket.relayMessage(jid, fullMsg.message, {
-                messageId: msgId
-            });
+            else {
+                // Plain text message
+                const textMsgId = '3EB0' + crypto_1.default.randomBytes(8).toString('hex').toUpperCase();
+                primaryMsgId = textMsgId;
+                const textContent = { text: cleanText };
+                const fullMsg = await (0, baileys_1.generateWAMessage)(jid, textContent, {
+                    userJid: this.socket.user?.id || this.user?.id || this.socket.authState?.creds?.me?.id,
+                    upload: this.socket.waUploadToServer,
+                    messageId: textMsgId,
+                    logger: this.socket.logger
+                });
+                if (!fullMsg?.message) {
+                    throw new Error('Failed to generate valid WhatsApp message payload');
+                }
+                this.messageStore.setRecord(textMsgId, {
+                    id: textMsgId,
+                    jid,
+                    message: fullMsg.message,
+                    text: cleanText,
+                    hasMedia: false,
+                    timestamp: Date.now()
+                });
+                await this.socket.relayMessage(jid, fullMsg.message, {
+                    messageId: textMsgId
+                });
+                console.log(`[WhatsApp Worker] Message successfully dispatched to ${jid} (ID: ${textMsgId})`);
+            }
             // Clear typing indicator
             try {
                 await this.socket.sendPresenceUpdate('paused', jid);
@@ -673,12 +726,11 @@ class WhatsAppSessionEngine {
             catch (e) {
                 // Non-fatal
             }
-            console.log(`[WhatsApp Worker] Message successfully dispatched to ${jid} (ID: ${msgId})`);
-            // Allow Signal ratchet state 1200ms to commit
-            await new Promise(r => setTimeout(r, 1200));
+            // Allow Signal ratchet state 1000ms to commit
+            await new Promise(r => setTimeout(r, 1000));
             return {
                 success: true,
-                messageId: msgId
+                messageId: primaryMsgId
             };
         }
         catch (err) {

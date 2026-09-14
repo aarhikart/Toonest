@@ -88,7 +88,7 @@ app.post('/restart', verifySecret, async (req, res) => {
 // 4. Send Direct Message
 app.post('/send', verifySecret, async (req, res) => {
     try {
-        const { to, text, mediaBase64, mediaMimeType, fileName, isImage } = req.body;
+        const { to, text, mediaBase64, mediaMimeType, fileName, isImage, sendTextSeparately, options } = req.body;
         if (!to) {
             return res.status(400).json({ error: 'Recipient phone number (to) is required' });
         }
@@ -104,7 +104,10 @@ app.post('/send', verifySecret, async (req, res) => {
                 isImage: isImage ?? mediaMimeType.startsWith('image/')
             };
         }
-        const result = await engine.sendMessage(to, text?.trim() || '', media);
+        const sendOptions = {
+            sendTextSeparately: sendTextSeparately ?? options?.sendTextSeparately
+        };
+        const result = await engine.sendMessage(to, text?.trim() || '', media, sendOptions);
         res.status(result.success ? 200 : 400).json(result);
     }
     catch (err) {
@@ -123,7 +126,7 @@ let activeCampaign = {
 };
 // Start Background Campaign
 app.post('/campaign/start', verifySecret, async (req, res) => {
-    const { contacts, template, delaySeconds = 3, mediaBase64, mediaMimeType, fileName, isImage } = req.body;
+    const { contacts, template, delaySeconds = 3, mediaBase64, mediaMimeType, fileName, isImage, sendTextSeparately } = req.body;
     if (!Array.isArray(contacts) || contacts.length === 0) {
         return res.status(400).json({ error: 'Valid contacts array required' });
     }
@@ -165,7 +168,9 @@ app.post('/campaign/start', verifySecret, async (req, res) => {
                 .replace(/\{number\}/gi, contact.phoneNumber);
             const delayMs = (delaySeconds + (Math.random() * 1.5 - 0.75)) * 1000;
             await new Promise(r => setTimeout(r, Math.max(1500, delayMs)));
-            const result = await engine.sendMessage(contact.phoneNumber, renderedText, media);
+            const result = await engine.sendMessage(contact.phoneNumber, renderedText, media, {
+                sendTextSeparately: sendTextSeparately !== false
+            });
             if (result.success) {
                 activeCampaign.sentCount++;
             }
