@@ -211,6 +211,7 @@ export class WhatsAppSessionEngine {
   private msgRetryCounterCache = new SimpleCacheStore();
   private userDevicesCache = new SimpleCacheStore();
   private sendQueue: Promise<any> = Promise.resolve();
+  public isReady = false;
 
   constructor(sessionDir = './sessions') {
     this.sessionDir = path.resolve(sessionDir);
@@ -387,6 +388,7 @@ export class WhatsAppSessionEngine {
         }
 
         if (connection === 'close') {
+          this.isReady = false;
           const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
           console.log(`[WhatsApp Worker] Connection closed. Status: ${statusCode}, Current State: ${this.state}`);
 
@@ -442,6 +444,7 @@ export class WhatsAppSessionEngine {
             this.reconnectAttempts = 0;
           }
         } else if (connection === 'open') {
+          this.isReady = true;
           this.state = 'CONNECTED';
           this.reconnectAttempts = 0;
           this.qrCodeDataUrl = null;
@@ -542,13 +545,13 @@ export class WhatsAppSessionEngine {
     phoneNumber: string,
     text: string,
     media?: { buffer: Buffer; mimetype: string; fileName?: string; isImage?: boolean },
-    options?: { sendTextSeparately?: boolean }
+    _options?: any
   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
     return new Promise(resolve => {
       this.sendQueue = this.sendQueue
         .then(async () => {
           try {
-            const res = await this.doSendMessage(phoneNumber, text, media, options);
+            const res = await this.doSendMessage(phoneNumber, text, media);
             resolve(res);
           } catch (err: any) {
             resolve({
@@ -569,184 +572,164 @@ export class WhatsAppSessionEngine {
   private async doSendMessage(
     phoneNumber: string,
     text: string,
-    media?: { buffer: Buffer; mimetype: string; fileName?: string; isImage?: boolean },
-    options?: { sendTextSeparately?: boolean }
-  ): Promise<{ success: boolean; messageId?: string; error?: string }> {
-    // 1. Ensure socket is CONNECTED and WebSocket is open
-    for (let i = 0; i < 25; i++) {
-      const wsOpen = (this.socket as any)?.ws?.isOpen ?? ((this.socket as any)?.ws?.socket?.readyState === 1);
-      if (this.state === 'CONNECTED' && this.socket && wsOpen) {
-        break;
-      }
-      console.log(`[WhatsApp Worker] Waiting for socket readiness (state: ${this.state}, wsOpen: ${wsOpen})... (${i + 1}/25)`);
-      await new Promise(r => setTimeout(r, 400));
+    media?: {
+      buffer: Buffer;
+      mimetype: string;
+      fileName?: string;
+      isImage?: boolean;
     }
-
-    const wsOpen = (this.socket as any)?.ws?.isOpen ?? ((this.socket as any)?.ws?.socket?.readyState === 1);
-    if (this.state !== 'CONNECTED' || !this.socket || !wsOpen) {
-      return {
-        success: false,
-        error: `WhatsApp socket is not open (state: ${this.state}, wsOpen: ${wsOpen}). Please verify your connection.`
-      };
-    }
-
-    let clean = phoneNumber.replace(/[^0-9]/g, '');
-    if (!clean) {
-      return { success: false, error: 'Recipient phone number is invalid.' };
-    }
-
-    let defaultCountryPrefix = '91';
-    if (this.user?.phoneNumber) {
-      const userDigits = this.user.phoneNumber.replace(/[^0-9]/g, '');
-      if (userDigits.length >= 10) {
-        const prefix = userDigits.slice(0, userDigits.length - 10);
-        if (prefix) defaultCountryPrefix = prefix;
-      }
-    }
-
-    if (clean.length === 10) {
-      clean = defaultCountryPrefix + clean;
-    } else if (clean.length === 11 && clean.startsWith('0')) {
-      clean = defaultCountryPrefix + clean.slice(1);
-    }
-
-    let jid = `${clean}@s.whatsapp.net`;
-
-    const cleanText = (text || '').trim();
-    if (!cleanText && !media) {
-      return { success: false, error: 'Cannot send empty message. Text or media is required.' };
-    }
-
+  ): Promise<{
+    success: boolean;
+    messageId?: string;
+    error?: string;
+  }> {
     try {
-      // Pre-validate onWhatsApp
-      try {
-        const results = await this.socket.onWhatsApp(clean);
-        if (results && results.length > 0) {
-          if (!results[0].exists) {
-            return {
-              success: false,
-              error: `Phone number +${clean} is not registered on WhatsApp.`
-            };
-          }
-          jid = results[0].jid;
-        }
-      } catch (e) {
-        console.warn('[WhatsApp Worker] onWhatsApp lookup warning:', e);
+      // --------------------------------------------------
+      // 1. Check WhatsApp connection
+      // --------------------------------------------------
+      if (!this.socket) {
+        return {
+          success: false,
+          error: 'WhatsApp socket is not initialized.'
+        };
       }
 
-      // Send composing indicator politely to warm up session
+      if (!this.socket.user) {
+        return {
+          success: false,
+          error: 'WhatsApp is not connected.'
+        };
+      }
+
+      // --------------------------------------------------
+      // 2. Normalize phone number
+      // --------------------------------------------------
+      const clean = String(phoneNumber).replace(/\D/g, '');
+      if (!clean) {
+        return {
+          success: false,
+          error: 'Invalid phone number.'
+        };
+      }
+
+      let jid = `${clean}@s.whatsapp.net`;
+
+      // --------------------------------------------------
+      // 3. Check whether number exists on WhatsApp
+      // --------------------------------------------------
+      try {
+        const result = await this.socket.onWhatsApp(clean);
+        if (!result || result.length === 0) {
+          return {
+            success: false,
+            error: `Unable to verify +${clean}.`
+          };
+        }
+        if (!result[0]?.exists) {
+          return {
+            success: false,
+            error: `Phone number +${clean} is not registered on WhatsApp.`
+          };
+        }
+        if (result[0]?.jid) {
+          jid = result[0].jid;
+        }
+      } catch (error) {
+        console.error(`onWhatsApp failed for ${clean}:`, error);
+        // Do not modify/delete encryption sessions here.
+      }
+
+      // --------------------------------------------------
+      // 4. Prepare message
+      // --------------------------------------------------
+      const cleanText = (text || '').trim();
+      if (!cleanText && !media) {
+        return {
+          success: false,
+          error: 'Message text or media is required.'
+        };
+      }
+
+      // --------------------------------------------------
+      // 5. Optional typing indicator
+      // --------------------------------------------------
       try {
         await this.socket.sendPresenceUpdate('composing', jid);
-        await new Promise(r => setTimeout(r, 600));
-      } catch (e) {
-        // Non-fatal
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } catch (error) {
+        console.warn('Presence update failed:', error);
       }
 
-      // Validate existing Signal session to prevent stale/closed ratchet decryption failure
-      try {
-        const sessionUser = clean;
-        const sessionFile = path.join(this.sessionDir, `session-${sessionUser}.0.json`);
-        if (fs.existsSync(sessionFile)) {
-          const raw = fs.readFileSync(sessionFile, 'utf-8');
-          const parsed = JSON.parse(raw);
-          const sessionsObj = parsed?._sessions || {};
-          let hasOpenSession = false;
-          for (const s of Object.values(sessionsObj) as any[]) {
-            if (s?.indexInfo && s.indexInfo.closed === -1) {
-              hasOpenSession = true;
-              break;
-            }
-          }
-          if (!hasOpenSession) {
-            console.log(`[WhatsApp Worker] Removing stale closed session for ${sessionUser} to force fresh PreKey assert`);
-            fs.unlinkSync(sessionFile);
-            if (typeof (this.socket as any)?.assertSessions === 'function') {
-              await (this.socket as any).assertSessions([jid], true);
-            }
-          }
-        }
-      } catch (sessCheckErr) {
-        console.warn('[WhatsApp Worker] Stale session check warning:', sessCheckErr);
-      }
-
-      let primaryMsgId = '';
-
+      // --------------------------------------------------
+      // 6. Send exactly ONE message
+      // --------------------------------------------------
+      let sent;
       if (media) {
-        // Dispatch exactly ONE media message with template caption
-        const mediaContent: AnyMessageContent = media.isImage
-          ? {
-              image: media.buffer,
-              caption: cleanText || undefined,
-              mimetype: media.mimetype
-            }
-          : {
-              document: media.buffer,
-              mimetype: media.mimetype,
-              fileName: media.fileName || 'document.pdf',
-              caption: cleanText || undefined
-            };
-
-        const sent = await this.socket.sendMessage(jid, mediaContent);
-        if (!sent?.key?.id) {
-          throw new Error('Failed to dispatch media message via WhatsApp socket');
-        }
-
-        primaryMsgId = sent.key.id;
-
-        if (sent.message) {
-          this.messageStore.setRecord(primaryMsgId, {
-            id: primaryMsgId,
-            jid,
-            message: sent.message,
-            text: cleanText,
-            hasMedia: true,
-            timestamp: Date.now()
+        if (media.isImage) {
+          sent = await this.socket.sendMessage(jid, {
+            image: media.buffer,
+            mimetype: media.mimetype,
+            caption: cleanText || undefined
+          });
+        } else {
+          sent = await this.socket.sendMessage(jid, {
+            document: media.buffer,
+            mimetype: media.mimetype,
+            fileName: media.fileName || 'document',
+            caption: cleanText || undefined
           });
         }
-
-        console.log(`[WhatsApp Worker] Media message successfully dispatched to ${jid} (ID: ${primaryMsgId})`);
       } else {
-        // Dispatch exactly ONE text template message
-        const sent = await this.socket.sendMessage(jid, { text: cleanText });
-        if (!sent?.key?.id) {
-          throw new Error('Failed to dispatch text message via WhatsApp socket');
-        }
-
-        primaryMsgId = sent.key.id;
-
-        if (sent.message) {
-          this.messageStore.setRecord(primaryMsgId, {
-            id: primaryMsgId,
-            jid,
-            message: sent.message,
-            text: cleanText,
-            hasMedia: false,
-            timestamp: Date.now()
-          });
-        }
-
-        console.log(`[WhatsApp Worker] Message successfully dispatched to ${jid} (ID: ${primaryMsgId})`);
+        sent = await this.socket.sendMessage(jid, {
+          text: cleanText
+        });
       }
 
-      // Clear typing indicator
+      // --------------------------------------------------
+      // 7. Validate WhatsApp response
+      // --------------------------------------------------
+      if (!sent?.key?.id) {
+        return {
+          success: false,
+          error: 'WhatsApp did not return a message ID.'
+        };
+      }
+
+      const messageId = sent.key.id;
+
+      // --------------------------------------------------
+      // 8. Store local message record
+      // --------------------------------------------------
+      if (sent.message) {
+        this.messageStore.setRecord(messageId, {
+          id: messageId,
+          jid,
+          message: sent.message,
+          text: cleanText,
+          hasMedia: !!media,
+          timestamp: Date.now()
+        });
+      }
+
+      // --------------------------------------------------
+      // 9. Stop typing indicator
+      // --------------------------------------------------
       try {
         await this.socket.sendPresenceUpdate('paused', jid);
-      } catch (e) {
-        // Non-fatal
-      }
+      } catch {}
 
-      // Allow Signal ratchet state 1000ms to commit
-      await new Promise(r => setTimeout(r, 1000));
-
+      // --------------------------------------------------
+      // 10. Return only SUBMITTED/SENT result
+      // --------------------------------------------------
       return {
         success: true,
-        messageId: primaryMsgId
+        messageId
       };
-    } catch (err: any) {
-      console.error(`[WhatsApp Worker] Failed to send message to ${jid}:`, err);
+    } catch (error: any) {
+      console.error('WhatsApp sendMessage error:', error);
       return {
         success: false,
-        error: err.message || 'Failed to dispatch message via WhatsApp socket'
+        error: error?.message || 'WhatsApp message sending failed.'
       };
     }
   }

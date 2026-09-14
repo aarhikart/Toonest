@@ -42,7 +42,6 @@ const pino_1 = __importDefault(require("pino"));
 const qrcode_1 = __importDefault(require("qrcode"));
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
-const crypto_1 = __importDefault(require("crypto"));
 class SimpleCacheStore {
     store = new Map();
     get(key) {
@@ -201,6 +200,7 @@ class WhatsAppSessionEngine {
     msgRetryCounterCache = new SimpleCacheStore();
     userDevicesCache = new SimpleCacheStore();
     sendQueue = Promise.resolve();
+    isReady = false;
     constructor(sessionDir = './sessions') {
         this.sessionDir = path_1.default.resolve(sessionDir);
         if (!fs_1.default.existsSync(this.sessionDir)) {
@@ -365,6 +365,7 @@ class WhatsAppSessionEngine {
                     }
                 }
                 if (connection === 'close') {
+                    this.isReady = false;
                     const statusCode = lastDisconnect?.error?.output?.statusCode;
                     console.log(`[WhatsApp Worker] Connection closed. Status: ${statusCode}, Current State: ${this.state}`);
                     // Status 515 = Baileys stream restart required after initial handshake
@@ -419,6 +420,7 @@ class WhatsAppSessionEngine {
                     }
                 }
                 else if (connection === 'open') {
+                    this.isReady = true;
                     this.state = 'CONNECTED';
                     this.reconnectAttempts = 0;
                     this.qrCodeDataUrl = null;
@@ -503,12 +505,12 @@ class WhatsAppSessionEngine {
         }
         this.scheduleReconnect(1000);
     }
-    async sendMessage(phoneNumber, text, media, options) {
+    async sendMessage(phoneNumber, text, media, _options) {
         return new Promise(resolve => {
             this.sendQueue = this.sendQueue
                 .then(async () => {
                 try {
-                    const res = await this.doSendMessage(phoneNumber, text, media, options);
+                    const res = await this.doSendMessage(phoneNumber, text, media);
                     resolve(res);
                 }
                 catch (err) {
@@ -526,214 +528,148 @@ class WhatsAppSessionEngine {
             });
         });
     }
-    async doSendMessage(phoneNumber, text, media, options) {
-        // 1. Ensure socket is CONNECTED and WebSocket is open
-        for (let i = 0; i < 25; i++) {
-            const wsOpen = this.socket?.ws?.isOpen ?? (this.socket?.ws?.socket?.readyState === 1);
-            if (this.state === 'CONNECTED' && this.socket && wsOpen) {
-                break;
-            }
-            console.log(`[WhatsApp Worker] Waiting for socket readiness (state: ${this.state}, wsOpen: ${wsOpen})... (${i + 1}/25)`);
-            await new Promise(r => setTimeout(r, 400));
-        }
-        const wsOpen = this.socket?.ws?.isOpen ?? (this.socket?.ws?.socket?.readyState === 1);
-        if (this.state !== 'CONNECTED' || !this.socket || !wsOpen) {
-            return {
-                success: false,
-                error: `WhatsApp socket is not open (state: ${this.state}, wsOpen: ${wsOpen}). Please verify your connection.`
-            };
-        }
-        let clean = phoneNumber.replace(/[^0-9]/g, '');
-        if (!clean) {
-            return { success: false, error: 'Recipient phone number is invalid.' };
-        }
-        let defaultCountryPrefix = '91';
-        if (this.user?.phoneNumber) {
-            const userDigits = this.user.phoneNumber.replace(/[^0-9]/g, '');
-            if (userDigits.length >= 10) {
-                const prefix = userDigits.slice(0, userDigits.length - 10);
-                if (prefix)
-                    defaultCountryPrefix = prefix;
-            }
-        }
-        if (clean.length === 10) {
-            clean = defaultCountryPrefix + clean;
-        }
-        else if (clean.length === 11 && clean.startsWith('0')) {
-            clean = defaultCountryPrefix + clean.slice(1);
-        }
-        let jid = `${clean}@s.whatsapp.net`;
-        const cleanText = (text || '').trim();
-        if (!cleanText && !media) {
-            return { success: false, error: 'Cannot send empty message. Text or media is required.' };
-        }
+    async doSendMessage(phoneNumber, text, media) {
         try {
-            // Pre-validate onWhatsApp
+            // --------------------------------------------------
+            // 1. Check WhatsApp connection
+            // --------------------------------------------------
+            if (!this.socket) {
+                return {
+                    success: false,
+                    error: 'WhatsApp socket is not initialized.'
+                };
+            }
+            if (!this.socket.user) {
+                return {
+                    success: false,
+                    error: 'WhatsApp is not connected.'
+                };
+            }
+            // --------------------------------------------------
+            // 2. Normalize phone number
+            // --------------------------------------------------
+            const clean = String(phoneNumber).replace(/\D/g, '');
+            if (!clean) {
+                return {
+                    success: false,
+                    error: 'Invalid phone number.'
+                };
+            }
+            let jid = `${clean}@s.whatsapp.net`;
+            // --------------------------------------------------
+            // 3. Check whether number exists on WhatsApp
+            // --------------------------------------------------
             try {
-                const results = await this.socket.onWhatsApp(clean);
-                if (results && results.length > 0) {
-                    if (!results[0].exists) {
-                        return {
-                            success: false,
-                            error: `Phone number +${clean} is not registered on WhatsApp.`
-                        };
-                    }
-                    jid = results[0].jid;
+                const result = await this.socket.onWhatsApp(clean);
+                if (!result || result.length === 0) {
+                    return {
+                        success: false,
+                        error: `Unable to verify +${clean}.`
+                    };
+                }
+                if (!result[0]?.exists) {
+                    return {
+                        success: false,
+                        error: `Phone number +${clean} is not registered on WhatsApp.`
+                    };
+                }
+                if (result[0]?.jid) {
+                    jid = result[0].jid;
                 }
             }
-            catch (e) {
-                console.warn('[WhatsApp Worker] onWhatsApp lookup warning:', e);
+            catch (error) {
+                console.error(`onWhatsApp failed for ${clean}:`, error);
+                // Do not modify/delete encryption sessions here.
             }
-            // Send composing indicator politely to warm up session
+            // --------------------------------------------------
+            // 4. Prepare message
+            // --------------------------------------------------
+            const cleanText = (text || '').trim();
+            if (!cleanText && !media) {
+                return {
+                    success: false,
+                    error: 'Message text or media is required.'
+                };
+            }
+            // --------------------------------------------------
+            // 5. Optional typing indicator
+            // --------------------------------------------------
             try {
                 await this.socket.sendPresenceUpdate('composing', jid);
-                await new Promise(r => setTimeout(r, 600));
+                await new Promise(resolve => setTimeout(resolve, 500));
             }
-            catch (e) {
-                // Non-fatal
+            catch (error) {
+                console.warn('Presence update failed:', error);
             }
-            // Validate existing Signal session to prevent stale/closed ratchet decryption failure
-            try {
-                const sessionUser = clean;
-                const sessionFile = path_1.default.join(this.sessionDir, `session-${sessionUser}.0.json`);
-                if (fs_1.default.existsSync(sessionFile)) {
-                    const raw = fs_1.default.readFileSync(sessionFile, 'utf-8');
-                    const parsed = JSON.parse(raw);
-                    const sessionsObj = parsed?._sessions || {};
-                    let hasOpenSession = false;
-                    for (const s of Object.values(sessionsObj)) {
-                        if (s?.indexInfo && s.indexInfo.closed === -1) {
-                            hasOpenSession = true;
-                            break;
-                        }
-                    }
-                    if (!hasOpenSession) {
-                        console.log(`[WhatsApp Worker] Removing stale closed session for ${sessionUser} to force fresh PreKey assert`);
-                        fs_1.default.unlinkSync(sessionFile);
-                        if (typeof this.socket?.assertSessions === 'function') {
-                            await this.socket.assertSessions([jid], true);
-                        }
-                    }
-                }
-            }
-            catch (sessCheckErr) {
-                console.warn('[WhatsApp Worker] Stale session check warning:', sessCheckErr);
-            }
-            let primaryMsgId = '';
-            // If media is present, dispatch media message (with caption)
+            // --------------------------------------------------
+            // 6. Send exactly ONE message
+            // --------------------------------------------------
+            let sent;
             if (media) {
-                const mediaMsgId = '3EB0' + crypto_1.default.randomBytes(8).toString('hex').toUpperCase();
-                primaryMsgId = mediaMsgId;
-                const mediaContent = media.isImage
-                    ? {
+                if (media.isImage) {
+                    sent = await this.socket.sendMessage(jid, {
                         image: media.buffer,
-                        caption: cleanText || undefined,
-                        mimetype: media.mimetype
-                    }
-                    : {
+                        mimetype: media.mimetype,
+                        caption: cleanText || undefined
+                    });
+                }
+                else {
+                    sent = await this.socket.sendMessage(jid, {
                         document: media.buffer,
                         mimetype: media.mimetype,
-                        fileName: media.fileName || 'document.pdf',
+                        fileName: media.fileName || 'document',
                         caption: cleanText || undefined
-                    };
-                const fullMediaMsg = await (0, baileys_1.generateWAMessage)(jid, mediaContent, {
-                    userJid: this.socket.user?.id || this.user?.id || this.socket.authState?.creds?.me?.id,
-                    upload: this.socket.waUploadToServer,
-                    messageId: mediaMsgId,
-                    logger: this.socket.logger
-                });
-                if (!fullMediaMsg?.message) {
-                    throw new Error('Failed to generate valid WhatsApp media payload');
-                }
-                // Cache media message in store before send
-                this.messageStore.setRecord(mediaMsgId, {
-                    id: mediaMsgId,
-                    jid,
-                    message: fullMediaMsg.message,
-                    text: cleanText,
-                    hasMedia: true,
-                    timestamp: Date.now()
-                });
-                await this.socket.relayMessage(jid, fullMediaMsg.message, {
-                    messageId: mediaMsgId
-                });
-                console.log(`[WhatsApp Worker] Media message successfully dispatched to ${jid} (ID: ${mediaMsgId})`);
-                // Smart Dual Delivery: If text template is present and separate text delivery is enabled (default true)
-                // Send the complete text template so that new users (who do not auto-download media) immediately see the full text!
-                const shouldSendSeparateText = options?.sendTextSeparately !== false && !!cleanText;
-                if (shouldSendSeparateText) {
-                    // Allow 2500ms for recipient device to complete and commit the first Signal ratchet handshake
-                    await new Promise(r => setTimeout(r, 2500));
-                    const textMsgId = '3EB0' + crypto_1.default.randomBytes(8).toString('hex').toUpperCase();
-                    const textContent = { text: cleanText };
-                    const fullTextMsg = await (0, baileys_1.generateWAMessage)(jid, textContent, {
-                        userJid: this.socket.user?.id || this.user?.id || this.socket.authState?.creds?.me?.id,
-                        upload: this.socket.waUploadToServer,
-                        messageId: textMsgId,
-                        logger: this.socket.logger
                     });
-                    if (fullTextMsg?.message) {
-                        this.messageStore.setRecord(textMsgId, {
-                            id: textMsgId,
-                            jid,
-                            message: fullTextMsg.message,
-                            text: cleanText,
-                            hasMedia: false,
-                            timestamp: Date.now()
-                        });
-                        await this.socket.relayMessage(jid, fullTextMsg.message, {
-                            messageId: textMsgId
-                        });
-                        console.log(`[WhatsApp Worker] Guaranteed text template dispatched to ${jid} (ID: ${textMsgId})`);
-                    }
                 }
             }
             else {
-                // Plain text message
-                const textMsgId = '3EB0' + crypto_1.default.randomBytes(8).toString('hex').toUpperCase();
-                primaryMsgId = textMsgId;
-                const textContent = { text: cleanText };
-                const fullMsg = await (0, baileys_1.generateWAMessage)(jid, textContent, {
-                    userJid: this.socket.user?.id || this.user?.id || this.socket.authState?.creds?.me?.id,
-                    upload: this.socket.waUploadToServer,
-                    messageId: textMsgId,
-                    logger: this.socket.logger
+                sent = await this.socket.sendMessage(jid, {
+                    text: cleanText
                 });
-                if (!fullMsg?.message) {
-                    throw new Error('Failed to generate valid WhatsApp message payload');
-                }
-                this.messageStore.setRecord(textMsgId, {
-                    id: textMsgId,
+            }
+            // --------------------------------------------------
+            // 7. Validate WhatsApp response
+            // --------------------------------------------------
+            if (!sent?.key?.id) {
+                return {
+                    success: false,
+                    error: 'WhatsApp did not return a message ID.'
+                };
+            }
+            const messageId = sent.key.id;
+            // --------------------------------------------------
+            // 8. Store local message record
+            // --------------------------------------------------
+            if (sent.message) {
+                this.messageStore.setRecord(messageId, {
+                    id: messageId,
                     jid,
-                    message: fullMsg.message,
+                    message: sent.message,
                     text: cleanText,
-                    hasMedia: false,
+                    hasMedia: !!media,
                     timestamp: Date.now()
                 });
-                await this.socket.relayMessage(jid, fullMsg.message, {
-                    messageId: textMsgId
-                });
-                console.log(`[WhatsApp Worker] Message successfully dispatched to ${jid} (ID: ${textMsgId})`);
             }
-            // Clear typing indicator
+            // --------------------------------------------------
+            // 9. Stop typing indicator
+            // --------------------------------------------------
             try {
                 await this.socket.sendPresenceUpdate('paused', jid);
             }
-            catch (e) {
-                // Non-fatal
-            }
-            // Allow Signal ratchet state 1000ms to commit
-            await new Promise(r => setTimeout(r, 1000));
+            catch { }
+            // --------------------------------------------------
+            // 10. Return only SUBMITTED/SENT result
+            // --------------------------------------------------
             return {
                 success: true,
-                messageId: primaryMsgId
+                messageId
             };
         }
-        catch (err) {
-            console.error(`[WhatsApp Worker] Failed to send message to ${jid}:`, err);
+        catch (error) {
+            console.error('WhatsApp sendMessage error:', error);
             return {
                 success: false,
-                error: err.message || 'Failed to dispatch message via WhatsApp socket'
+                error: error?.message || 'WhatsApp message sending failed.'
             };
         }
     }
