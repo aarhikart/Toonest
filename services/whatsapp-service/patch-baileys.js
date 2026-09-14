@@ -60,20 +60,51 @@ if (fs.existsSync(messagesRecvFile)) {
                 };
                 await relayMessage(relayJid, msg, msgRelayOpts);
                 logger.info({ id: ids[i], relayJid, participant, retryCount }, 'sendMessagesAgain: retry response dispatched successfully');
+                console.log('[WhatsApp Worker] Successfully dispatched retry response for message ' + ids[i] + ' to ' + relayJid + ' (participant: ' + participant + ', count: ' + retryCount + ')');
             }
             else {
                 logger.debug({ jid: relayJid, id: ids[i] }, 'recv retry request, but message not available');
+                console.warn('[WhatsApp Worker] recv retry request for ' + ids[i] + ', but message not found in store');
             }
         }
     };`;
 
   if (sendMessagesAgainRegex.test(content)) {
     content = content.replace(sendMessagesAgainRegex, newSendMessagesAgain);
-    fs.writeFileSync(messagesRecvFile, content, 'utf8');
     console.log('[patch-baileys] Successfully patched sendMessagesAgain in messages-recv.js');
   } else {
-    console.warn('[patch-baileys] sendMessagesAgain regex did not match in messages-recv.js');
+    console.log('[patch-baileys] sendMessagesAgain already patched or regex did not match');
   }
+
+  // B. Patch fromMe calculation in handleReceipt to ensure retry receipts are never marked fromMe = false
+  const fromMeRegex = /const fromMe = !attrs\.recipient \|\| \(\(attrs\.type === 'retry' \|\| attrs\.type === 'sender'\) && isNodeFromMe\);/;
+  const newFromMe = "const fromMe = !attrs.recipient || attrs.type === 'retry' || ((attrs.type === 'sender') && isNodeFromMe);";
+  if (fromMeRegex.test(content)) {
+    content = content.replace(fromMeRegex, newFromMe);
+    console.log('[patch-baileys] Successfully patched handleReceipt fromMe check in messages-recv.js');
+  } else {
+    console.log('[patch-baileys] handleReceipt fromMe check already patched');
+  }
+
+  // C. Patch if (attrs.type === 'retry') block to guarantee key.fromMe = true and bypass drop
+  const retryBlockRegex = /if \(attrs\.type === 'retry'\) \{\r?\n\s*\/\/ correctly set who is asking for the retry\r?\n\s*key\.participant = key\.participant \|\| attrs\.from;\r?\n\s*const retryNode = getBinaryNodeChild\(node, 'retry'\);\r?\n\s*if \(willSendMessageAgain\(ids\[0\], key\.participant\)\) \{\r?\n\s*if \(key\.fromMe\) \{/;
+  
+  const newRetryBlock = `if (attrs.type === 'retry') {
+                        // correctly set who is asking for the retry
+                        key.participant = key.participant || attrs.from;
+                        key.fromMe = true; // Patch: Ensure retry requests always trigger sendMessagesAgain
+                        const retryNode = getBinaryNodeChild(node, 'retry');
+                        if (willSendMessageAgain(ids[0], key.participant)) {
+                            if (key.fromMe || true) {`;
+
+  if (retryBlockRegex.test(content)) {
+    content = content.replace(retryBlockRegex, newRetryBlock);
+    console.log('[patch-baileys] Successfully patched retryBlock in messages-recv.js');
+  } else {
+    console.log('[patch-baileys] retryBlock already patched or regex did not match');
+  }
+
+  fs.writeFileSync(messagesRecvFile, content, 'utf8');
 } else {
   console.warn('[patch-baileys] messages-recv.js not found');
 }
