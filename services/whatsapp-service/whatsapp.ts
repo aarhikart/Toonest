@@ -6,7 +6,9 @@ import makeWASocket, {
   proto,
   BufferJSON,
   CacheStore,
-  Browsers
+  Browsers,
+  generateWAMessage,
+  AnyMessageContent
 } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import QRCode from 'qrcode';
@@ -273,6 +275,34 @@ export class WhatsAppSessionEngine {
     }
   }
 
+  private cleanCorruptedLidSessions(): void {
+    try {
+      if (!fs.existsSync(this.sessionDir)) return;
+      const files = fs.readdirSync(this.sessionDir);
+      let removedCount = 0;
+      for (const file of files) {
+        if (file.startsWith('session-') && file.endsWith('.json')) {
+          const id = file.replace('session-', '').replace('.json', '').split('.')[0];
+          // Purge session files created for @lid (14+ digits or known bot LID 254159018278990)
+          const isLid = id.length >= 14 || id === '254159018278990';
+          if (isLid) {
+            try {
+              fs.unlinkSync(path.join(this.sessionDir, file));
+              removedCount++;
+            } catch (e) {
+              // ignore
+            }
+          }
+        }
+      }
+      if (removedCount > 0) {
+        console.log(`[WhatsApp Worker] Cleaned up ${removedCount} obsolete/corrupted LID session cache files.`);
+      }
+    } catch (e) {
+      console.warn('[WhatsApp Worker] Warning cleaning LID session cache:', e);
+    }
+  }
+
   public async initialize(): Promise<void> {
     // If already connected and socket is live, avoid duplicate initialization
     const isSocketReady = this.socket && ((this.socket as any)?.ws?.isOpen ?? (this.socket as any)?.ws?.socket?.readyState === 1);
@@ -290,6 +320,8 @@ export class WhatsAppSessionEngine {
     this.isExplicitLogout = false;
 
     try {
+      // Clean up any corrupted LID session files BEFORE loading auth state
+      this.cleanCorruptedLidSessions();
       const { state: authState, saveCreds } = await useMultiFileAuthState(this.sessionDir);
 
       this.socket = makeWASocket({
@@ -308,17 +340,25 @@ export class WhatsAppSessionEngine {
         msgRetryCounterCache: this.msgRetryCounterCache,
         userDevicesCache: this.userDevicesCache,
         emitOwnEvents: true,
+        shouldIgnoreJid: (jid: string) => jid.endsWith('@broadcast') || jid.includes('newsletter'),
+        resolveLidToJid: (msgId: string, remoteJid?: string): string | undefined => {
+          const rec = this.messageStore.getRecord(msgId, remoteJid);
+          if (rec?.jid && !rec.jid.endsWith('@lid')) {
+            return rec.jid;
+          }
+          return undefined;
+        },
         getMessage: async (key: proto.IMessageKey): Promise<proto.IMessage | undefined> => {
           if (!key?.id) return undefined;
           const record = this.messageStore.getRecord(key.id, key.remoteJid || undefined);
           if (record?.message) {
-            console.log(`[WhatsApp Worker] Responding to Signal retry request for message ID: ${key.id} (remote: ${key.remoteJid})`);
+            console.log(`[WhatsApp Worker] Responding to Signal retry request for message ID: ${key.id} (remote: ${key.remoteJid}, chat: ${record.jid})`);
             return record.message;
           }
           console.warn(`[WhatsApp Worker] Signal retry requested for ID ${key.id}, but not found in messageStore.`);
           return undefined;
         }
-      });
+      } as any);
 
       this.socket.ev.on('creds.update', saveCreds);
 
@@ -633,77 +673,50 @@ export class WhatsAppSessionEngine {
       // Standard Baileys 3EB0 prefix + 16 random hex chars
       const msgId = '3EB0' + crypto.randomBytes(8).toString('hex').toUpperCase();
 
-      // Pre-construct proto message for instant Signal retry response
-      let protoMessage: proto.IMessage;
-      if (media) {
-        if (media.isImage) {
-          protoMessage = {
-            imageMessage: {
+      // Construct AnyMessageContent accurately
+      const messageContent: AnyMessageContent = media
+        ? media.isImage
+          ? {
+              image: media.buffer,
               caption: cleanText || undefined,
               mimetype: media.mimetype
             }
-          };
-        } else {
-          protoMessage = {
-            documentMessage: {
-              caption: cleanText || undefined,
+          : {
+              document: media.buffer,
               mimetype: media.mimetype,
-              fileName: media.fileName || 'document.pdf'
+              fileName: media.fileName || 'document.pdf',
+              caption: cleanText || undefined
             }
-          };
-        }
-      } else {
-        protoMessage = {
-          conversation: cleanText,
-          extendedTextMessage: {
+        : {
             text: cleanText
-          }
-        };
+          };
+
+      // Generate the FULL, spec-compliant WebMessageInfo (uploads media, computes cryptographic hashes, thumbnail)
+      const fullMsg = await generateWAMessage(jid, messageContent, {
+        userJid: this.socket.user?.id || this.user?.id || (this.socket as any).authState?.creds?.me?.id,
+        upload: (this.socket as any).waUploadToServer,
+        messageId: msgId,
+        logger: this.socket.logger
+      });
+
+      if (!fullMsg?.message) {
+        throw new Error('Failed to generate valid WhatsApp message payload');
       }
 
-      // Cache IMMEDIATELY in messageStore before dispatching over socket
+      // Pre-cache the complete, valid protobuf in MessageStore BEFORE dispatching over socket!
       this.messageStore.setRecord(msgId, {
         id: msgId,
         jid,
-        message: protoMessage,
+        message: fullMsg.message,
         text: cleanText,
         hasMedia: !!media,
         timestamp: Date.now()
       });
 
-      // Dispatch message with our pre-registered messageId
-      let sentMsg: proto.WebMessageInfo | undefined;
-      if (media) {
-        if (media.isImage) {
-          sentMsg = await this.socket.sendMessage(jid, {
-            image: media.buffer,
-            caption: cleanText || undefined
-          }, { messageId: msgId });
-        } else {
-          sentMsg = await this.socket.sendMessage(jid, {
-            document: media.buffer,
-            mimetype: media.mimetype,
-            fileName: media.fileName || 'document.pdf',
-            caption: cleanText || undefined
-          }, { messageId: msgId });
-        }
-      } else {
-        sentMsg = await this.socket.sendMessage(jid, {
-          text: cleanText
-        }, { messageId: msgId });
-      }
-
-      // If Baileys returned full message proto, update our cached record with the exact proto
-      if (sentMsg?.message) {
-        this.messageStore.setRecord(msgId, {
-          id: msgId,
-          jid,
-          message: sentMsg.message,
-          text: cleanText,
-          hasMedia: !!media,
-          timestamp: Date.now()
-        });
-      }
+      // Dispatch message over socket using relayMessage
+      await this.socket.relayMessage(jid, fullMsg.message, {
+        messageId: msgId
+      });
 
       // Clear typing indicator
       try {
