@@ -1,21 +1,21 @@
 const fs = require('fs');
 const path = require('path');
 
-// 1. Patch messages-recv.js for proper @lid retry resolution
+// 1. Patch messages-recv.js for proper @lid retry resolution and reliable Signal retry delivery
 const messagesRecvFile = path.join(__dirname, 'node_modules', '@whiskeysockets', 'baileys', 'lib', 'Socket', 'messages-recv.js');
 
 if (fs.existsSync(messagesRecvFile)) {
   let content = fs.readFileSync(messagesRecvFile, 'utf8');
 
-  // Replace sendMessagesAgain with LID resolver
-  const sendMessagesAgainRegex = /const sendMessagesAgain = async \(key, ids, retryNode\) => \{[\s\S]*?\n    \};(?=\s*const handleReceipt)/;
+  // Replace sendMessagesAgain with improved retry handler (supports Windows \r\n and Linux \n)
+  const sendMessagesAgainRegex = /const sendMessagesAgain = async \(key, ids, retryNode\) => \{[\s\S]*?\r?\n\s*\};(?=\s*const handleReceipt)/;
   
   const newSendMessagesAgain = `const sendMessagesAgain = async (key, ids, retryNode) => {
-        // Resolve original message from message store
+        // 1. Resolve original messages from message store
         const msgs = await Promise.all(ids.map(id => getMessage({ ...key, id })));
         let relayJid = key.remoteJid;
         
-        // If the retry receipt comes from a LID (multi-device companion), resolve to original phone JID
+        // 2. Resolve LID to original phone JID if receipt came from a LID
         if (relayJid.endsWith('@lid') && typeof config.resolveLidToJid === 'function') {
             const resolved = config.resolveLidToJid(ids[0], relayJid);
             if (resolved && !resolved.endsWith('@lid')) {
@@ -24,31 +24,42 @@ if (fs.existsSync(messagesRecvFile)) {
             }
         }
         
-        // If resolved to a phone JID, participant must be the phone JID, NOT the LID
-        const participant = relayJid.endsWith('@lid') ? (key.participant || relayJid) : relayJid;
-        const sendToAll = !jidDecode(participant)?.device || key.remoteJid.endsWith('@lid');
+        // 3. Determine target participant JID (must be a valid phone JID, not LID)
+        const rawParticipant = key.participant || key.remoteJid;
+        let participant = rawParticipant;
+        if (participant.endsWith('@lid') && relayJid.endsWith('@s.whatsapp.net')) {
+            const device = jidDecode(participant)?.device;
+            const phoneUser = jidDecode(relayJid)?.user;
+            participant = jidEncode(phoneUser, 's.whatsapp.net', device);
+        }
         
+        const retryCount = +(retryNode?.attrs?.count || 1);
+        
+        // 4. CRITICAL: Never force-wipe open Signal sessions on first retry (retryCount === 1)!
+        // Only re-fetch if session is completely missing or repeated retry failure (retryCount > 2)
         if (!participant.endsWith('@lid')) {
-            await assertSessions([participant], true);
+            await assertSessions([participant], retryCount > 2);
         }
         if (isJidGroup(relayJid)) {
             await authState.keys.set({ 'sender-key-memory': { [relayJid]: null } });
         }
-        logger.debug({ participant, sendToAll, relayJid }, 'forced new session for retry recp');
+        logger.debug({ participant, relayJid, retryCount }, 'sendMessagesAgain: prepared retry dispatch');
         for (const [i, msg] of msgs.entries()) {
             if (msg) {
                 updateSendMessageAgainCount(ids[i], participant);
-                const msgRelayOpts = { messageId: ids[i] };
-                if (sendToAll) {
-                    msgRelayOpts.useUserDevicesCache = false;
-                }
-                else {
-                    msgRelayOpts.participant = {
+                const msgRelayOpts = {
+                    messageId: ids[i],
+                    participant: {
                         jid: participant,
-                        count: +retryNode.attrs.count
-                    };
-                }
+                        count: retryCount
+                    },
+                    additionalAttributes: {
+                        device_fanout: 'false'
+                    },
+                    useUserDevicesCache: false
+                };
                 await relayMessage(relayJid, msg, msgRelayOpts);
+                logger.info({ id: ids[i], relayJid, participant, retryCount }, 'sendMessagesAgain: retry response dispatched successfully');
             }
             else {
                 logger.debug({ jid: relayJid, id: ids[i] }, 'recv retry request, but message not available');
@@ -71,10 +82,6 @@ if (fs.existsSync(messagesRecvFile)) {
 const sessionCipherFile = path.join(__dirname, 'node_modules', 'libsignal', 'src', 'session_cipher.js');
 if (fs.existsSync(sessionCipherFile)) {
   let content = fs.readFileSync(sessionCipherFile, 'utf8');
-  const targetLogging = `        console.error("Failed to decrypt message with any known session...");
-        for (const e of errs) {
-            console.error("Session error:" + e, e.stack);
-        }`;
   
   const quietLogging = `        // Suppress noisy stack traces for Bad MAC on obsolete/companion sessions
         if (!errs.some(e => e && e.message && e.message.includes('Bad MAC'))) {
