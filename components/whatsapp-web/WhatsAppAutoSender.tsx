@@ -81,7 +81,13 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
     isRunningRef.current = true;
     isPausedRef.current = false;
 
-    const currentList = [...contacts];
+    // If all contacts are already marked SENT, auto-reset all to PENDING so the campaign can re-run
+    let currentList = [...contacts];
+    const pendingContacts = currentList.filter(c => c.status !== 'SENT');
+    if (pendingContacts.length === 0 && currentList.length > 0) {
+      currentList = currentList.map(c => ({ ...c, status: 'PENDING' as const }));
+      onContactsUpdate([...currentList]);
+    }
 
     for (let i = 0; i < currentList.length; i++) {
       if (!isRunningRef.current) break;
@@ -134,10 +140,10 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
 
       if (dispatchMode === 'WORKER') {
         try {
+          // Exactly ONE message: media with caption or text template
           const payload: any = {
             to: contact.phoneNumber,
-            text: customizedText,
-            sendTextSeparately: true
+            text: customizedText
           };
           if (media) {
             payload.mediaBase64 = media.dataUrl.split(',')[1];
@@ -235,6 +241,11 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
     isPausedRef.current = false;
   };
 
+  const resetAllStatuses = () => {
+    const reset = contacts.map(c => ({ ...c, status: 'PENDING' as const }));
+    onContactsUpdate(reset);
+  };
+
   return (
     <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-6 shadow-xs space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -276,13 +287,24 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
           </div>
 
           {!isRunning ? (
-            <button
-              onClick={startCampaign}
-              className="px-6 py-2.5 bg-[#5722AF] hover:bg-[#471a93] text-white font-semibold rounded-xl text-xs flex items-center gap-2 shadow-md transition"
-            >
-              <Play className="w-4 h-4" />
-              Start Campaign
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={resetAllStatuses}
+                className="px-3.5 py-2.5 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-semibold rounded-xl text-xs flex items-center gap-1.5 border border-zinc-200 dark:border-zinc-700 transition shadow-xs"
+                title="Reset all contacts status to PENDING so you can resend template to everyone"
+              >
+                <Clock className="w-3.5 h-3.5 text-zinc-400" />
+                Reset List
+              </button>
+              <button
+                onClick={startCampaign}
+                className="px-6 py-2.5 bg-[#5722AF] hover:bg-[#471a93] text-white font-semibold rounded-xl text-xs flex items-center gap-2 shadow-md transition"
+              >
+                <Play className="w-4 h-4" />
+                Start Campaign
+              </button>
+            </div>
           ) : (
             <>
               <button

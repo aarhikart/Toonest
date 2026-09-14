@@ -671,11 +671,8 @@ export class WhatsAppSessionEngine {
 
       let primaryMsgId = '';
 
-      // If media is present, dispatch media message (with caption)
       if (media) {
-        const mediaMsgId = '3EB0' + crypto.randomBytes(8).toString('hex').toUpperCase();
-        primaryMsgId = mediaMsgId;
-
+        // Dispatch exactly ONE media message with template caption
         const mediaContent: AnyMessageContent = media.isImage
           ? {
               image: media.buffer,
@@ -689,98 +686,46 @@ export class WhatsAppSessionEngine {
               caption: cleanText || undefined
             };
 
-        const fullMediaMsg = await generateWAMessage(jid, mediaContent, {
-          userJid: this.socket.user?.id || this.user?.id || (this.socket as any).authState?.creds?.me?.id,
-          upload: (this.socket as any).waUploadToServer,
-          messageId: mediaMsgId,
-          logger: this.socket.logger
-        });
-
-        if (!fullMediaMsg?.message) {
-          throw new Error('Failed to generate valid WhatsApp media payload');
+        const sent = await this.socket.sendMessage(jid, mediaContent);
+        if (!sent?.key?.id) {
+          throw new Error('Failed to dispatch media message via WhatsApp socket');
         }
 
-        // Cache media message in store before send
-        this.messageStore.setRecord(mediaMsgId, {
-          id: mediaMsgId,
-          jid,
-          message: fullMediaMsg.message,
-          text: cleanText,
-          hasMedia: true,
-          timestamp: Date.now()
-        });
+        primaryMsgId = sent.key.id;
 
-        await this.socket.relayMessage(jid, fullMediaMsg.message, {
-          messageId: mediaMsgId
-        });
-
-        console.log(`[WhatsApp Worker] Media message successfully dispatched to ${jid} (ID: ${mediaMsgId})`);
-
-        // Smart Dual Delivery: If text template is present and separate text delivery is enabled (default true)
-        // Send the complete text template so that new users (who do not auto-download media) immediately see the full text!
-        const shouldSendSeparateText = options?.sendTextSeparately !== false && !!cleanText;
-        if (shouldSendSeparateText) {
-          // Allow 2500ms for recipient device to complete and commit the first Signal ratchet handshake
-          await new Promise(r => setTimeout(r, 2500));
-
-          const textMsgId = '3EB0' + crypto.randomBytes(8).toString('hex').toUpperCase();
-          const textContent: AnyMessageContent = { text: cleanText };
-
-          const fullTextMsg = await generateWAMessage(jid, textContent, {
-            userJid: this.socket.user?.id || this.user?.id || (this.socket as any).authState?.creds?.me?.id,
-            upload: (this.socket as any).waUploadToServer,
-            messageId: textMsgId,
-            logger: this.socket.logger
+        if (sent.message) {
+          this.messageStore.setRecord(primaryMsgId, {
+            id: primaryMsgId,
+            jid,
+            message: sent.message,
+            text: cleanText,
+            hasMedia: true,
+            timestamp: Date.now()
           });
-
-          if (fullTextMsg?.message) {
-            this.messageStore.setRecord(textMsgId, {
-              id: textMsgId,
-              jid,
-              message: fullTextMsg.message,
-              text: cleanText,
-              hasMedia: false,
-              timestamp: Date.now()
-            });
-
-            await this.socket.relayMessage(jid, fullTextMsg.message, {
-              messageId: textMsgId
-            });
-
-            console.log(`[WhatsApp Worker] Guaranteed text template dispatched to ${jid} (ID: ${textMsgId})`);
-          }
         }
+
+        console.log(`[WhatsApp Worker] Media message successfully dispatched to ${jid} (ID: ${primaryMsgId})`);
       } else {
-        // Plain text message
-        const textMsgId = '3EB0' + crypto.randomBytes(8).toString('hex').toUpperCase();
-        primaryMsgId = textMsgId;
-
-        const textContent: AnyMessageContent = { text: cleanText };
-        const fullMsg = await generateWAMessage(jid, textContent, {
-          userJid: this.socket.user?.id || this.user?.id || (this.socket as any).authState?.creds?.me?.id,
-          upload: (this.socket as any).waUploadToServer,
-          messageId: textMsgId,
-          logger: this.socket.logger
-        });
-
-        if (!fullMsg?.message) {
-          throw new Error('Failed to generate valid WhatsApp message payload');
+        // Dispatch exactly ONE text template message
+        const sent = await this.socket.sendMessage(jid, { text: cleanText });
+        if (!sent?.key?.id) {
+          throw new Error('Failed to dispatch text message via WhatsApp socket');
         }
 
-        this.messageStore.setRecord(textMsgId, {
-          id: textMsgId,
-          jid,
-          message: fullMsg.message,
-          text: cleanText,
-          hasMedia: false,
-          timestamp: Date.now()
-        });
+        primaryMsgId = sent.key.id;
 
-        await this.socket.relayMessage(jid, fullMsg.message, {
-          messageId: textMsgId
-        });
+        if (sent.message) {
+          this.messageStore.setRecord(primaryMsgId, {
+            id: primaryMsgId,
+            jid,
+            message: sent.message,
+            text: cleanText,
+            hasMedia: false,
+            timestamp: Date.now()
+          });
+        }
 
-        console.log(`[WhatsApp Worker] Message successfully dispatched to ${jid} (ID: ${textMsgId})`);
+        console.log(`[WhatsApp Worker] Message successfully dispatched to ${jid} (ID: ${primaryMsgId})`);
       }
 
       // Clear typing indicator

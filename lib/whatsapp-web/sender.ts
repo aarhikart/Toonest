@@ -24,15 +24,23 @@ export const POPULAR_COUNTRY_CODES: CountryCodeOption[] = [
 
 export class WhatsAppSenderEngine {
   /**
-   * Replace placeholders like {name}, {phone}, {number}
+   * Replace placeholders like {name}, {{name}}, {phone}, {{phone}}, {1}, {{1}}
    */
   static interpolate(template: string, contact: WebContact): string {
+    if (!template) return '';
+    const safeName = (contact.name || 'Friend').trim();
+    const firstName = safeName.split(' ')[0] || safeName;
+    const phone = contact.phoneNumber || '';
+
     return template
-      .replace(/\{name\}/gi, contact.name || 'Friend')
-      .replace(/\{phone\}/gi, contact.phoneNumber)
-      .replace(/\{number\}/gi, contact.phoneNumber)
-      .replace(/\{first_name\}/gi, (contact.name || 'Friend').split(' ')[0])
-      .replace(/\{random\}/gi, Math.random().toString(36).substring(2, 7).toUpperCase());
+      // Name: {{name}}, {name}, [name], %name%, {{1}}, {1}
+      .replace(/(\{\{\s*name\s*\}\}|\{\s*name\s*\}|\[\s*name\s*\]|%\s*name\s*%|\{\{\s*1\s*\}\}|\{\s*1\s*\})/gi, safeName)
+      // First name: {{first_name}}, {first_name}
+      .replace(/(\{\{\s*first_name\s*\}\}|\{\s*first_name\s*\}|\[\s*first_name\s*\])/gi, firstName)
+      // Phone: {{phone}}, {phone}, {{number}}, {number}, {{2}}, {2}
+      .replace(/(\{\{\s*(?:phone|number)\s*\}\}|\{\s*(?:phone|number)\s*\}|\[\s*(?:phone|number)\s*\]|\{\{\s*2\s*\}\}|\{\s*2\s*\})/gi, phone)
+      // Random: {{random}}, {random}
+      .replace(/(\{\{\s*random\s*\}\}|\{\s*random\s*\})/gi, Math.random().toString(36).substring(2, 7).toUpperCase());
   }
 
   /**
