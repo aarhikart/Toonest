@@ -275,34 +275,6 @@ export class WhatsAppSessionEngine {
     }
   }
 
-  private cleanCorruptedLidSessions(): void {
-    try {
-      if (!fs.existsSync(this.sessionDir)) return;
-      const files = fs.readdirSync(this.sessionDir);
-      let removedCount = 0;
-      for (const file of files) {
-        if (file.startsWith('session-') && file.endsWith('.json')) {
-          const id = file.replace('session-', '').replace('.json', '').split('.')[0];
-          // Purge session files created for @lid (14+ digits or known bot LID 254159018278990)
-          const isLid = id.length >= 14 || id === '254159018278990';
-          if (isLid) {
-            try {
-              fs.unlinkSync(path.join(this.sessionDir, file));
-              removedCount++;
-            } catch (e) {
-              // ignore
-            }
-          }
-        }
-      }
-      if (removedCount > 0) {
-        console.log(`[WhatsApp Worker] Cleaned up ${removedCount} obsolete/corrupted LID session cache files.`);
-      }
-    } catch (e) {
-      console.warn('[WhatsApp Worker] Warning cleaning LID session cache:', e);
-    }
-  }
-
   public async initialize(): Promise<void> {
     // If already connected and socket is live, avoid duplicate initialization
     const isSocketReady = this.socket && ((this.socket as any)?.ws?.isOpen ?? (this.socket as any)?.ws?.socket?.readyState === 1);
@@ -320,8 +292,6 @@ export class WhatsAppSessionEngine {
     this.isExplicitLogout = false;
 
     try {
-      // Clean up any corrupted LID session files BEFORE loading auth state
-      this.cleanCorruptedLidSessions();
       const { state: authState, saveCreds } = await useMultiFileAuthState(this.sessionDir);
 
       this.socket = makeWASocket({
@@ -672,6 +642,33 @@ export class WhatsAppSessionEngine {
         // Non-fatal
       }
 
+      // Validate existing Signal session to prevent stale/closed ratchet decryption failure
+      try {
+        const sessionUser = clean;
+        const sessionFile = path.join(this.sessionDir, `session-${sessionUser}.0.json`);
+        if (fs.existsSync(sessionFile)) {
+          const raw = fs.readFileSync(sessionFile, 'utf-8');
+          const parsed = JSON.parse(raw);
+          const sessionsObj = parsed?._sessions || {};
+          let hasOpenSession = false;
+          for (const s of Object.values(sessionsObj) as any[]) {
+            if (s?.indexInfo && s.indexInfo.closed === -1) {
+              hasOpenSession = true;
+              break;
+            }
+          }
+          if (!hasOpenSession) {
+            console.log(`[WhatsApp Worker] Removing stale closed session for ${sessionUser} to force fresh PreKey assert`);
+            fs.unlinkSync(sessionFile);
+            if (typeof (this.socket as any)?.assertSessions === 'function') {
+              await (this.socket as any).assertSessions([jid], true);
+            }
+          }
+        }
+      } catch (sessCheckErr) {
+        console.warn('[WhatsApp Worker] Stale session check warning:', sessCheckErr);
+      }
+
       let primaryMsgId = '';
 
       // If media is present, dispatch media message (with caption)
@@ -723,7 +720,8 @@ export class WhatsAppSessionEngine {
         // Send the complete text template so that new users (who do not auto-download media) immediately see the full text!
         const shouldSendSeparateText = options?.sendTextSeparately !== false && !!cleanText;
         if (shouldSendSeparateText) {
-          await new Promise(r => setTimeout(r, 600));
+          // Allow 2500ms for recipient device to complete and commit the first Signal ratchet handshake
+          await new Promise(r => setTimeout(r, 2500));
 
           const textMsgId = '3EB0' + crypto.randomBytes(8).toString('hex').toUpperCase();
           const textContent: AnyMessageContent = { text: cleanText };
