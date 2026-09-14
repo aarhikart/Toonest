@@ -161,8 +161,30 @@ export class MessageStore {
     return this.records.has(id);
   }
 
+  private lidMap = new Map<string, string>();
+
+  public setLidMapping(lid: string, jid: string): void {
+    if (!lid || !jid) return;
+    this.lidMap.set(lid, jid);
+    this.lidMap.set(lid.toLowerCase(), jid);
+    this.lidMap.set(lid.toUpperCase(), jid);
+    const cleanLid = lid.split('@')[0];
+    this.lidMap.set(cleanLid, jid);
+  }
+
+  public getJidForLid(lid: string): string | undefined {
+    if (!lid) return undefined;
+    return (
+      this.lidMap.get(lid) ||
+      this.lidMap.get(lid.toLowerCase()) ||
+      this.lidMap.get(lid.toUpperCase()) ||
+      this.lidMap.get(lid.split('@')[0])
+    );
+  }
+
   public clear(): void {
     this.records.clear();
+    this.lidMap.clear();
     try {
       if (fs.existsSync(this.storeFilePath)) {
         fs.unlinkSync(this.storeFilePath);
@@ -313,6 +335,12 @@ export class WhatsAppSessionEngine {
         emitOwnEvents: true,
         shouldIgnoreJid: (jid: string) => jid.endsWith('@broadcast') || jid.includes('newsletter'),
         resolveLidToJid: (msgId: string, remoteJid?: string): string | undefined => {
+          if (remoteJid) {
+            const mapped = this.messageStore.getJidForLid(remoteJid);
+            if (mapped && !mapped.endsWith('@lid')) {
+              return mapped;
+            }
+          }
           const rec = this.messageStore.getRecord(msgId, remoteJid);
           if (rec?.jid && !rec.jid.endsWith('@lid')) {
             return rec.jid;
@@ -632,7 +660,13 @@ export class WhatsAppSessionEngine {
           };
         }
         if (result[0]?.jid) {
-          jid = result[0].jid;
+          const rawDigits = result[0].jid.replace(/@.*$/, '').replace(/\D/g, '');
+          if (rawDigits) {
+            jid = `${rawDigits}@s.whatsapp.net`;
+          }
+        }
+        if ((result[0] as any)?.lid) {
+          this.messageStore.setLidMapping(String((result[0] as any).lid), jid);
         }
       } catch (error) {
         console.error(`onWhatsApp failed for ${clean}:`, error);
@@ -651,11 +685,11 @@ export class WhatsAppSessionEngine {
       }
 
       // --------------------------------------------------
-      // 5. Optional typing indicator
+      // 5. Presence indicator & Signal handshake settlement
       // --------------------------------------------------
       try {
         await this.socket.sendPresenceUpdate('composing', jid);
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 800));
       } catch (error) {
         console.warn('Presence update failed:', error);
       }

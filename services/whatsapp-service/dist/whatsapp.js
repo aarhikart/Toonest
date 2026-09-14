@@ -171,8 +171,27 @@ class MessageStore {
     has(id) {
         return this.records.has(id);
     }
+    lidMap = new Map();
+    setLidMapping(lid, jid) {
+        if (!lid || !jid)
+            return;
+        this.lidMap.set(lid, jid);
+        this.lidMap.set(lid.toLowerCase(), jid);
+        this.lidMap.set(lid.toUpperCase(), jid);
+        const cleanLid = lid.split('@')[0];
+        this.lidMap.set(cleanLid, jid);
+    }
+    getJidForLid(lid) {
+        if (!lid)
+            return undefined;
+        return (this.lidMap.get(lid) ||
+            this.lidMap.get(lid.toLowerCase()) ||
+            this.lidMap.get(lid.toUpperCase()) ||
+            this.lidMap.get(lid.split('@')[0]));
+    }
     clear() {
         this.records.clear();
+        this.lidMap.clear();
         try {
             if (fs_1.default.existsSync(this.storeFilePath)) {
                 fs_1.default.unlinkSync(this.storeFilePath);
@@ -295,6 +314,12 @@ class WhatsAppSessionEngine {
                 emitOwnEvents: true,
                 shouldIgnoreJid: (jid) => jid.endsWith('@broadcast') || jid.includes('newsletter'),
                 resolveLidToJid: (msgId, remoteJid) => {
+                    if (remoteJid) {
+                        const mapped = this.messageStore.getJidForLid(remoteJid);
+                        if (mapped && !mapped.endsWith('@lid')) {
+                            return mapped;
+                        }
+                    }
                     const rec = this.messageStore.getRecord(msgId, remoteJid);
                     if (rec?.jid && !rec.jid.endsWith('@lid')) {
                         return rec.jid;
@@ -574,7 +599,13 @@ class WhatsAppSessionEngine {
                     };
                 }
                 if (result[0]?.jid) {
-                    jid = result[0].jid;
+                    const rawDigits = result[0].jid.replace(/@.*$/, '').replace(/\D/g, '');
+                    if (rawDigits) {
+                        jid = `${rawDigits}@s.whatsapp.net`;
+                    }
+                }
+                if (result[0]?.lid) {
+                    this.messageStore.setLidMapping(String(result[0].lid), jid);
                 }
             }
             catch (error) {
@@ -592,11 +623,11 @@ class WhatsAppSessionEngine {
                 };
             }
             // --------------------------------------------------
-            // 5. Optional typing indicator
+            // 5. Presence indicator & Signal handshake settlement
             // --------------------------------------------------
             try {
                 await this.socket.sendPresenceUpdate('composing', jid);
-                await new Promise(resolve => setTimeout(resolve, 500));
+                await new Promise(resolve => setTimeout(resolve, 800));
             }
             catch (error) {
                 console.warn('Presence update failed:', error);
