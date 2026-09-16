@@ -42,6 +42,7 @@ import {
   Send,
   MessageSquare,
   Smartphone,
+  Monitor,
 } from 'lucide-react';
 
 
@@ -358,6 +359,22 @@ export function Sidebar({
       desc: 'Test website across phones, tablets, laptops & desktop screen sizes',
       icon: <Smartphone className="w-4 h-4" />,
       href: '/responsive-website-tester',
+      badge: 'Available',
+    },
+    {
+      id: 'website-access-upload-tester',
+      name: 'Website Access & Upload Tester',
+      desc: 'Test site reachability, corporate firewall filters & upload compatibility',
+      icon: <Globe className="w-4 h-4" />,
+      href: '/website-access-upload-tester',
+      badge: 'Available',
+    },
+    {
+      id: 'website-viewer',
+      name: 'Website Viewer',
+      desc: 'In-app browser to open, navigate, and test live websites',
+      icon: <Monitor className="w-4 h-4" />,
+      href: '/website-viewer',
       badge: 'Available',
     },
     {
