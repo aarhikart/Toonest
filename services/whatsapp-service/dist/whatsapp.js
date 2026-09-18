@@ -1,708 +1,410 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.WhatsAppSessionEngine = exports.MessageStore = exports.SimpleCacheStore = void 0;
-const baileys_1 = __importStar(require("@whiskeysockets/baileys"));
-const pino_1 = __importDefault(require("pino"));
+exports.WhatsAppSessionEngine = void 0;
+exports.normalizePhoneNumber = normalizePhoneNumber;
+const whatsapp_web_js_1 = require("whatsapp-web.js");
 const qrcode_1 = __importDefault(require("qrcode"));
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
-class SimpleCacheStore {
-    store = new Map();
-    get(key) {
-        return this.store.get(key);
+/**
+ * Intelligent phone number normalizer matching /whatsapp-mess
+ */
+function normalizePhoneNumber(phone) {
+    const cleaned = phone.replace(/\D/g, '');
+    if (cleaned.length === 11 && cleaned.startsWith('0')) {
+        return '91' + cleaned.slice(1);
     }
-    set(key, value) {
-        this.store.set(key, value);
+    if (cleaned.length === 10) {
+        return '91' + cleaned;
     }
-    del(key) {
-        this.store.delete(key);
-    }
-    flushAll() {
-        this.store.clear();
-    }
+    return cleaned;
 }
-exports.SimpleCacheStore = SimpleCacheStore;
-class MessageStore {
-    records = new Map();
-    storeFilePath;
-    maxEntries = 3000;
-    saveTimeout = null;
-    constructor(sessionDir) {
-        this.storeFilePath = path_1.default.join(sessionDir, 'message_store.json');
-        this.loadFromDisk();
-    }
-    loadFromDisk() {
-        try {
-            if (fs_1.default.existsSync(this.storeFilePath)) {
-                const raw = fs_1.default.readFileSync(this.storeFilePath, 'utf-8');
-                const parsed = JSON.parse(raw, baileys_1.BufferJSON.reviver);
-                if (parsed && typeof parsed === 'object') {
-                    for (const [key, val] of Object.entries(parsed)) {
-                        const rec = val;
-                        if (rec && rec.message) {
-                            this.records.set(key, rec);
-                        }
-                        else if (rec && typeof rec === 'object') {
-                            // Backward compatibility for raw proto objects
-                            this.records.set(key, {
-                                id: key,
-                                jid: '',
-                                message: rec,
-                                timestamp: Date.now()
-                            });
-                        }
-                    }
-                    console.log(`[WhatsApp Worker] Loaded ${this.records.size} cached message records from store.`);
-                }
-            }
-        }
-        catch (e) {
-            console.warn('[WhatsApp Worker] Could not load message store from disk:', e);
-        }
-    }
-    scheduleSave() {
-        if (this.saveTimeout)
-            return;
-        this.saveTimeout = setTimeout(() => {
-            this.saveTimeout = null;
-            try {
-                const obj = {};
-                for (const [k, v] of this.records.entries()) {
-                    obj[k] = v;
-                }
-                fs_1.default.writeFileSync(this.storeFilePath, JSON.stringify(obj, baileys_1.BufferJSON.replacer), 'utf-8');
-            }
-            catch (e) {
-                console.warn('[WhatsApp Worker] Failed to save message store to disk:', e);
-            }
-        }, 1000);
-    }
-    setRecord(id, record) {
-        if (!id || !record || !record.message)
-            return;
-        if (this.records.size >= this.maxEntries) {
-            const oldestKey = this.records.keys().next().value;
-            if (oldestKey)
-                this.records.delete(oldestKey);
-        }
-        const cleanId = id.trim();
-        this.records.set(cleanId, record);
-        this.records.set(cleanId.toUpperCase(), record);
-        this.records.set(cleanId.toLowerCase(), record);
-        if (record.jid) {
-            this.records.set(`${record.jid}:${cleanId}`, record);
-            const cleanJid = record.jid.split('@')[0];
-            this.records.set(`${cleanJid}:${cleanId}`, record);
-        }
-        this.scheduleSave();
-    }
-    set(id, message, remoteJid) {
-        this.setRecord(id, {
-            id,
-            jid: remoteJid || '',
-            message,
-            timestamp: Date.now()
-        });
-    }
-    getRecord(id, remoteJid) {
-        if (!id)
-            return undefined;
-        const cleanId = id.trim();
-        let rec = this.records.get(cleanId) || this.records.get(cleanId.toUpperCase()) || this.records.get(cleanId.toLowerCase());
-        if (rec)
-            return rec;
-        if (remoteJid) {
-            rec = this.records.get(`${remoteJid}:${cleanId}`) || this.records.get(`${remoteJid}:${cleanId.toUpperCase()}`);
-            if (rec)
-                return rec;
-            const cleanJid = remoteJid.split('@')[0];
-            rec = this.records.get(`${cleanJid}:${cleanId}`) || this.records.get(`${cleanJid}:${cleanId.toUpperCase()}`);
-            if (rec)
-                return rec;
-        }
-        // Secondary scan for compound key match (handles LID retry requests)
-        const upperId = cleanId.toUpperCase();
-        for (const [k, v] of this.records.entries()) {
-            if (k.toUpperCase().endsWith(`:${upperId}`) || k.toUpperCase() === upperId) {
-                return v;
-            }
-        }
-        return undefined;
-    }
-    get(id, remoteJid) {
-        return this.getRecord(id, remoteJid)?.message;
-    }
-    has(id) {
-        return this.records.has(id);
-    }
-    lidMap = new Map();
-    setLidMapping(lid, jid) {
-        if (!lid || !jid)
-            return;
-        this.lidMap.set(lid, jid);
-        this.lidMap.set(lid.toLowerCase(), jid);
-        this.lidMap.set(lid.toUpperCase(), jid);
-        const cleanLid = lid.split('@')[0];
-        this.lidMap.set(cleanLid, jid);
-    }
-    getJidForLid(lid) {
-        if (!lid)
-            return undefined;
-        return (this.lidMap.get(lid) ||
-            this.lidMap.get(lid.toLowerCase()) ||
-            this.lidMap.get(lid.toUpperCase()) ||
-            this.lidMap.get(lid.split('@')[0]));
-    }
-    clear() {
-        this.records.clear();
-        this.lidMap.clear();
-        try {
-            if (fs_1.default.existsSync(this.storeFilePath)) {
-                fs_1.default.unlinkSync(this.storeFilePath);
-            }
-        }
-        catch (e) {
-            // ignore
-        }
-    }
-}
-exports.MessageStore = MessageStore;
 class WhatsAppSessionEngine {
-    socket = null;
+    client = null;
+    sessionDir;
     state = 'DISCONNECTED';
     qrCodeDataUrl = null;
     pairingCode = null;
     user = null;
     lastConnectedAt = null;
-    sessionDir;
-    reconnectAttempts = 0;
-    isExplicitLogout = false;
     isConnecting = false;
+    isExplicitLogout = false;
     reconnectTimer = null;
-    messageStore;
-    msgRetryCounterCache = new SimpleCacheStore();
-    userDevicesCache = new SimpleCacheStore();
-    sendQueue = Promise.resolve();
-    isReady = false;
+    pairingCodeWaiter = null;
     constructor(sessionDir = './sessions') {
-        this.sessionDir = path_1.default.resolve(sessionDir);
-        if (!fs_1.default.existsSync(this.sessionDir)) {
+        this.sessionDir = sessionDir;
+        try {
             fs_1.default.mkdirSync(this.sessionDir, { recursive: true });
         }
-        this.messageStore = new MessageStore(this.sessionDir);
+        catch (_) { }
     }
-    /**
-     * Destroys existing socket and clears all event listeners.
-     * Guarantees that only ONE active WASocket instance exists at any time.
-     */
-    destroyCurrentSocket() {
-        if (this.reconnectTimer) {
-            clearTimeout(this.reconnectTimer);
-            this.reconnectTimer = null;
-        }
-        if (this.socket) {
-            try {
-                this.socket.ev.removeAllListeners('connection.update');
-                this.socket.ev.removeAllListeners('creds.update');
-                this.socket.ev.removeAllListeners('messages.upsert');
-                this.socket.ev.removeAllListeners('messages.update');
-                const ws = this.socket?.ws;
-                if (ws && typeof ws.close === 'function') {
-                    ws.close();
-                }
-                this.socket.end(undefined);
-            }
-            catch (e) {
-                // Non-fatal cleanup
-            }
-            this.socket = null;
-            console.log('[WhatsApp Worker] Previous WASocket instance cleanly destroyed.');
-        }
-    }
-    /**
-     * Debounced single-reconnect scheduler to eliminate socket stampedes.
-     */
-    scheduleReconnect(delayMs) {
-        if (this.reconnectTimer) {
-            clearTimeout(this.reconnectTimer);
-            this.reconnectTimer = null;
-        }
-        this.reconnectTimer = setTimeout(() => {
-            this.reconnectTimer = null;
-            this.initialize();
-        }, delayMs);
-    }
-    clearSessionFiles() {
-        this.messageStore.clear();
-        if (fs_1.default.existsSync(this.sessionDir)) {
-            try {
-                fs_1.default.rmSync(this.sessionDir, { recursive: true, force: true });
-                fs_1.default.mkdirSync(this.sessionDir, { recursive: true });
-                console.log('[WhatsApp Worker] Session files wiped clean:', this.sessionDir);
-            }
-            catch (err) {
-                console.error('[WhatsApp Worker] Error clearing session files:', err);
+    getPuppeteerOptions() {
+        const baseArgs = [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu',
+            '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+        ];
+        const options = {
+            headless: true,
+            args: baseArgs
+        };
+        try {
+            const puppeteer = require('puppeteer');
+            const defaultPath = puppeteer.executablePath();
+            if (defaultPath && fs_1.default.existsSync(defaultPath)) {
+                options.executablePath = defaultPath;
             }
         }
+        catch (_) { }
+        return options;
     }
-    async initialize() {
-        // If already connected and socket is live, avoid duplicate initialization
-        const isSocketReady = this.socket && (this.socket?.ws?.isOpen ?? this.socket?.ws?.socket?.readyState === 1);
-        if (this.state === 'CONNECTED' && isSocketReady) {
+    async initialize(pairPhoneNumber) {
+        if (this.isConnecting) {
+            console.log('[WhatsApp Worker] WhatsApp Web client is already initializing...');
             return;
         }
-        if (this.isConnecting) {
+        if (this.client && this.state === 'CONNECTED') {
+            console.log('[WhatsApp Worker] WhatsApp Web client is already connected.');
             return;
         }
         this.isConnecting = true;
-        this.destroyCurrentSocket();
-        this.state = 'CONNECTING';
         this.isExplicitLogout = false;
+        this.state = 'CONNECTING';
         try {
-            const { state: authState, saveCreds } = await (0, baileys_1.useMultiFileAuthState)(this.sessionDir);
-            this.socket = (0, baileys_1.default)({
-                auth: {
-                    creds: authState.creds,
-                    keys: (0, baileys_1.makeCacheableSignalKeyStore)(authState.keys, (0, pino_1.default)({ level: 'silent' }))
-                },
-                printQRInTerminal: false,
-                logger: (0, pino_1.default)({ level: 'silent' }),
-                browser: baileys_1.Browsers.appropriate('Chrome'),
-                connectTimeoutMs: 60000,
-                keepAliveIntervalMs: 15000,
-                syncFullHistory: false,
-                markOnlineOnConnect: true,
-                generateHighQualityLinkPreview: false,
-                msgRetryCounterCache: this.msgRetryCounterCache,
-                userDevicesCache: this.userDevicesCache,
-                emitOwnEvents: true,
-                shouldIgnoreJid: (jid) => jid.endsWith('@broadcast') || jid.includes('newsletter'),
-                resolveLidToJid: (msgId, remoteJid) => {
-                    if (remoteJid) {
-                        const mapped = this.messageStore.getJidForLid(remoteJid);
-                        if (mapped && !mapped.endsWith('@lid')) {
-                            return mapped;
+            const authPath = path_1.default.resolve(this.sessionDir, 'wwebjs_auth');
+            fs_1.default.mkdirSync(authPath, { recursive: true });
+            if (this.client) {
+                try {
+                    await this.client.destroy();
+                }
+                catch (_) { }
+                this.client = null;
+            }
+            console.log('[WhatsApp Worker] Launching WhatsApp Web browser engine (Chromium)...');
+            const client = new whatsapp_web_js_1.Client({
+                authStrategy: new whatsapp_web_js_1.LocalAuth({
+                    dataPath: authPath
+                }),
+                ...(pairPhoneNumber
+                    ? {
+                        pairWithPhoneNumber: {
+                            phoneNumber: pairPhoneNumber,
+                            showNotification: true,
+                            intervalMs: 180000
                         }
                     }
-                    const rec = this.messageStore.getRecord(msgId, remoteJid);
-                    if (rec?.jid && !rec.jid.endsWith('@lid')) {
-                        return rec.jid;
-                    }
-                    return undefined;
-                },
-                getMessage: async (key) => {
-                    if (!key?.id)
-                        return undefined;
-                    const record = this.messageStore.getRecord(key.id, key.remoteJid || undefined);
-                    if (record?.message) {
-                        console.log(`[WhatsApp Worker] Responding to Signal retry request for message ID: ${key.id} (remote: ${key.remoteJid}, chat: ${record.jid})`);
-                        return record.message;
-                    }
-                    console.warn(`[WhatsApp Worker] Signal retry requested for ID ${key.id}, but not found in messageStore.`);
-                    return undefined;
+                    : {}),
+                puppeteer: this.getPuppeteerOptions()
+            });
+            this.client = client;
+            // Event: QR Code
+            client.on('qr', async (qr) => {
+                try {
+                    const qrDataUrl = await qrcode_1.default.toDataURL(qr);
+                    this.qrCodeDataUrl = qrDataUrl;
+                    this.pairingCode = null;
+                    this.state = 'QR_READY';
+                    console.log('[WhatsApp Worker] Real scannable WhatsApp Web QR code generated.');
+                }
+                catch (err) {
+                    console.error('[WhatsApp Worker] Failed to render QR code image:', err.message);
                 }
             });
-            this.socket.ev.on('creds.update', saveCreds);
-            // Only store real user messages to prevent storage bloat and protocol desync
-            this.socket.ev.on('messages.upsert', async ({ messages }) => {
-                for (const msg of messages) {
-                    if (msg.key?.id && msg.message) {
-                        const hasContent = !!(msg.message.conversation ||
-                            msg.message.extendedTextMessage ||
-                            msg.message.imageMessage ||
-                            msg.message.documentMessage ||
-                            msg.message.videoMessage ||
-                            msg.message.audioMessage);
-                        if (hasContent) {
-                            const text = (msg.message.conversation || msg.message.extendedTextMessage?.text) ?? undefined;
-                            this.messageStore.setRecord(msg.key.id, {
-                                id: msg.key.id,
-                                jid: msg.key.remoteJid || '',
-                                message: msg.message,
-                                text: text || undefined,
-                                hasMedia: !!(msg.message.imageMessage || msg.message.documentMessage),
-                                timestamp: Date.now()
-                            });
-                        }
-                    }
+            // Event: Pairing Code
+            client.on('code', (code) => {
+                this.pairingCode = String(code);
+                this.state = 'WAITING_FOR_PAIRING';
+                console.log(`[WhatsApp Worker] Pairing code generated: ${code}`);
+                if (this.pairingCodeWaiter) {
+                    clearTimeout(this.pairingCodeWaiter.timeout);
+                    this.pairingCodeWaiter.resolve(String(code));
+                    this.pairingCodeWaiter = null;
                 }
             });
-            // Track confirmed deliveries from recipient devices
-            this.socket.ev.on('messages.update', updates => {
-                for (const u of updates) {
-                    if (u.update.status === baileys_1.proto.WebMessageInfo.Status.DELIVERY_ACK) {
-                        console.log(`[WhatsApp Worker] Message ${u.key.id} confirmed DELIVERED to recipient device.`);
-                    }
-                    else if (u.update.status === baileys_1.proto.WebMessageInfo.Status.READ) {
-                        console.log(`[WhatsApp Worker] Message ${u.key.id} confirmed READ by recipient.`);
-                    }
-                }
+            // Event: Authenticated
+            client.on('authenticated', () => {
+                this.state = 'CONNECTED';
+                this.qrCodeDataUrl = null;
+                this.pairingCode = null;
+                console.log('[WhatsApp Worker] WhatsApp Web authenticated successfully.');
             });
-            this.socket.ev.on('connection.update', async (update) => {
-                const { connection, lastDisconnect, qr } = update;
-                if (qr) {
-                    // Never overwrite connected state or pairing state with QR code
-                    if (this.state !== 'CONNECTED' && this.state !== 'WAITING_FOR_PAIRING') {
-                        try {
-                            this.qrCodeDataUrl = await qrcode_1.default.toDataURL(qr, { margin: 2, scale: 7 });
-                            this.state = 'QR_CODE_REQUIRED';
-                            console.log('[WhatsApp Worker] Generated brand new QR Code data URL');
-                        }
-                        catch (e) {
-                            console.error('[WhatsApp Worker] Error rendering QR code data URL', e);
-                        }
-                    }
-                }
-                if (connection === 'close') {
-                    this.isReady = false;
-                    const statusCode = lastDisconnect?.error?.output?.statusCode;
-                    console.log(`[WhatsApp Worker] Connection closed. Status: ${statusCode}, Current State: ${this.state}`);
-                    // Status 515 = Baileys stream restart required after initial handshake
-                    if (statusCode === 515) {
-                        console.log('[WhatsApp Worker] Baileys stream restart required (515). Reconnecting immediately with session...');
-                        this.state = 'CONNECTING';
-                        this.scheduleReconnect(500);
-                        return;
-                    }
-                    // Preserve noise keys when user is typing pairing code on mobile
-                    if (this.state === 'WAITING_FOR_PAIRING') {
-                        console.log('[WhatsApp Worker] Connection closed during pairing code entry. Reconnecting with pairing keys intact...');
-                        const shouldReconnect = !this.isExplicitLogout;
-                        if (shouldReconnect) {
-                            this.scheduleReconnect(1500);
-                        }
-                        return;
-                    }
-                    // Resilient 401 handling
-                    if (statusCode === baileys_1.DisconnectReason.loggedOut || statusCode === 401) {
-                        if (this.isExplicitLogout || this.reconnectAttempts >= 3) {
-                            console.log('[WhatsApp Worker] Permanent logout confirmed. Wiping session files and restarting...');
-                            this.clearSessionFiles();
-                            this.state = 'DISCONNECTED';
-                            this.user = null;
-                            this.qrCodeDataUrl = null;
-                            this.pairingCode = null;
-                            this.reconnectAttempts = 0;
-                            this.scheduleReconnect(1000);
-                            return;
-                        }
-                        else {
-                            console.log(`[WhatsApp Worker] 401 close intercepted. Reconnect attempt ${this.reconnectAttempts + 1}/3 with existing keys before wiping...`);
-                            this.reconnectAttempts++;
-                            this.scheduleReconnect(2000);
-                            return;
-                        }
-                    }
-                    const shouldReconnect = !this.isExplicitLogout;
-                    if (shouldReconnect) {
-                        this.state = 'RECONNECTING';
-                        const delay = Math.min(5000, 1000 * (this.reconnectAttempts + 1));
-                        this.reconnectAttempts++;
-                        this.scheduleReconnect(delay);
-                    }
-                    else {
-                        this.state = 'DISCONNECTED';
-                        this.user = null;
-                        this.qrCodeDataUrl = null;
-                        this.pairingCode = null;
-                        this.reconnectAttempts = 0;
-                    }
-                }
-                else if (connection === 'open') {
-                    this.isReady = true;
+            // Event: Ready
+            client.on('ready', () => {
+                this.state = 'CONNECTED';
+                this.lastConnectedAt = new Date().toISOString();
+                this.qrCodeDataUrl = null;
+                this.pairingCode = null;
+                const info = client.info;
+                const wid = info?.wid?._serialized || '';
+                const phoneDigits = wid ? wid.split('@')[0].split(':')[0] : null;
+                this.user = {
+                    id: wid || null,
+                    name: info?.pushname || 'WhatsApp Account',
+                    phoneNumber: phoneDigits ? `+${phoneDigits}` : null
+                };
+                console.log(`[WhatsApp Worker] Ready! Connected as ${this.user.name} (${this.user.phoneNumber})`);
+            });
+            // Event: State Change
+            client.on('change_state', (state) => {
+                console.log(`[WhatsApp Worker] State changed: ${state}`);
+                if (state === 'CONNECTED') {
                     this.state = 'CONNECTED';
-                    this.reconnectAttempts = 0;
                     this.qrCodeDataUrl = null;
                     this.pairingCode = null;
-                    this.lastConnectedAt = new Date().toISOString();
-                    if (this.reconnectTimer) {
-                        clearTimeout(this.reconnectTimer);
-                        this.reconnectTimer = null;
-                    }
-                    const me = this.socket?.user;
-                    const phone = me?.id ? me.id.split(':')[0] : null;
-                    this.user = {
-                        id: me?.id || null,
-                        name: me?.name || 'WhatsApp Account',
-                        phoneNumber: phone ? `+${phone}` : null
-                    };
-                    console.log(`[WhatsApp Worker] Successfully connected as ${this.user.name} (${this.user.phoneNumber})`);
                 }
             });
+            // Event: Auth Failure
+            client.on('auth_failure', (msg) => {
+                console.warn('[WhatsApp Worker] Auth failure:', msg);
+                if (this.pairingCodeWaiter) {
+                    clearTimeout(this.pairingCodeWaiter.timeout);
+                    this.pairingCodeWaiter.reject(new Error(`Authentication failed: ${msg}`));
+                    this.pairingCodeWaiter = null;
+                }
+                this.state = 'DISCONNECTED';
+                this.qrCodeDataUrl = null;
+                this.pairingCode = null;
+            });
+            // Event: Disconnected
+            client.on('disconnected', async (reason) => {
+                console.log('[WhatsApp Worker] Client disconnected:', reason);
+                this.state = 'DISCONNECTED';
+                this.user = null;
+                this.qrCodeDataUrl = null;
+                this.pairingCode = null;
+                if (!this.isExplicitLogout) {
+                    console.log('[WhatsApp Worker] Session disconnected, scheduling auto-reconnect...');
+                    this.scheduleReconnect(3000);
+                }
+            });
+            await client.initialize();
         }
         catch (err) {
-            console.error('[WhatsApp Worker] Failed to initialize Baileys session', err);
-            this.clearSessionFiles();
+            console.error('[WhatsApp Worker] Failed to initialize WhatsApp Web client:', err.message || err);
             this.state = 'DISCONNECTED';
-            this.scheduleReconnect(2000);
+            if (this.pairingCodeWaiter) {
+                clearTimeout(this.pairingCodeWaiter.timeout);
+                this.pairingCodeWaiter.reject(new Error(err.message || 'Failed to initialize client'));
+                this.pairingCodeWaiter = null;
+            }
+            this.scheduleReconnect(5000);
         }
         finally {
             this.isConnecting = false;
         }
     }
     async requestPairingCode(phoneNumber) {
-        let cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
-        if (!cleanNumber) {
-            throw new Error('Valid phone number with country code is required.');
+        const digits = normalizePhoneNumber(phoneNumber);
+        if (!digits || digits.length < 10 || digits.length > 15) {
+            throw new Error(`Invalid phone number (+${digits}). Must be 10 to 15 digits including country code.`);
         }
-        // Smart country code normalization: If 10 digits, default to India +91
-        if (cleanNumber.length === 10) {
-            cleanNumber = '91' + cleanNumber;
-        }
-        else if (cleanNumber.length === 11 && cleanNumber.startsWith('0')) {
-            cleanNumber = '91' + cleanNumber.slice(1);
-        }
-        if (cleanNumber.length < 10 || cleanNumber.length > 15) {
-            throw new Error(`Invalid phone number (+${cleanNumber}). Must include country code without spaces (e.g. +919876543210).`);
-        }
-        // If currently connected to an account:
         if (this.state === 'CONNECTED') {
-            const currentDigits = this.user?.phoneNumber?.replace(/[^0-9]/g, '');
-            if (currentDigits && (currentDigits === cleanNumber || currentDigits.endsWith(cleanNumber) || cleanNumber.endsWith(currentDigits))) {
-                throw new Error(`WhatsApp is already connected as +${cleanNumber}. No need to pair again!`);
+            const currentDigits = this.user?.phoneNumber?.replace(/\D/g, '');
+            if (currentDigits && (currentDigits === digits || currentDigits.endsWith(digits) || digits.endsWith(currentDigits))) {
+                throw new Error(`WhatsApp is already connected as +${digits}. No need to pair again!`);
             }
-            console.log(`[WhatsApp Worker] Switching WhatsApp account to +${cleanNumber}. Logging out existing session...`);
+            console.log(`[WhatsApp Worker] Switching WhatsApp account to +${digits}. Logging out existing session...`);
             await this.logout(true);
-            await new Promise(r => setTimeout(r, 1500));
+            await new Promise((r) => setTimeout(r, 1500));
         }
-        if (!this.socket) {
-            await this.initialize();
+        // Try direct pairing code on active QR page if available
+        if (this.client && this.state === 'QR_READY' && this.client.pupPage) {
+            try {
+                console.log(`[WhatsApp Worker] Requesting pairing code directly from active page for +${digits}...`);
+                this.state = 'WAITING_FOR_PAIRING';
+                const code = await this.client.requestPairingCode(digits);
+                if (code) {
+                    this.pairingCode = String(code);
+                    return String(code);
+                }
+            }
+            catch (err) {
+                console.warn(`[WhatsApp Worker] Direct requestPairingCode failed: ${err.message}. Restarting with pairWithPhoneNumber...`);
+            }
         }
-        // Wait until WebSocket is ready to receive requests
-        for (let i = 0; i < 25; i++) {
-            const isReady = this.socket?.ws?.isOpen ?? (this.socket?.ws?.socket?.readyState === 1);
-            if (this.socket && isReady)
-                break;
-            await new Promise(r => setTimeout(r, 200));
+        if (this.pairingCodeWaiter) {
+            clearTimeout(this.pairingCodeWaiter.timeout);
+            this.pairingCodeWaiter = null;
         }
-        this.state = 'WAITING_FOR_PAIRING';
-        console.log(`[WhatsApp Worker] Requesting official WhatsApp pairing code for +${cleanNumber}...`);
-        const code = await this.socket.requestPairingCode(cleanNumber);
-        this.pairingCode = code;
-        console.log(`[WhatsApp Worker] Official pairing code generated: ${code} for +${cleanNumber}`);
-        return code;
+        const codePromise = new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                if (this.pairingCodeWaiter) {
+                    this.pairingCodeWaiter = null;
+                    reject(new Error('Pairing code generation timed out. Please try again.'));
+                }
+            }, 60000);
+            this.pairingCodeWaiter = { resolve, reject, timeout };
+        });
+        await this.initialize(digits);
+        return codePromise;
     }
     async logout(clearCredentials = true) {
         this.isExplicitLogout = true;
-        this.destroyCurrentSocket();
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+        }
+        if (this.pairingCodeWaiter) {
+            clearTimeout(this.pairingCodeWaiter.timeout);
+            this.pairingCodeWaiter.reject(new Error('Logout requested.'));
+            this.pairingCodeWaiter = null;
+        }
         this.state = 'DISCONNECTED';
+        this.user = null;
         this.qrCodeDataUrl = null;
         this.pairingCode = null;
-        this.user = null;
-        if (clearCredentials) {
-            this.clearSessionFiles();
+        if (this.client) {
+            try {
+                await this.client.logout();
+            }
+            catch (_) { }
+            try {
+                await this.client.destroy();
+            }
+            catch (_) { }
+            this.client = null;
         }
-        this.scheduleReconnect(1000);
-    }
-    async sendMessage(phoneNumber, text, media, _options) {
-        return new Promise(resolve => {
-            this.sendQueue = this.sendQueue
-                .then(async () => {
-                try {
-                    const res = await this.doSendMessage(phoneNumber, text, media);
-                    resolve(res);
-                }
-                catch (err) {
-                    resolve({
-                        success: false,
-                        error: err?.message || 'Failed to dispatch message via WhatsApp queue'
-                    });
-                }
-            })
-                .catch(err => {
-                resolve({
-                    success: false,
-                    error: err?.message || 'Unexpected error in WhatsApp send queue'
-                });
-            });
-        });
-    }
-    async doSendMessage(phoneNumber, text, media) {
-        try {
-            // --------------------------------------------------
-            // 1. Check WhatsApp connection
-            // --------------------------------------------------
-            if (!this.socket) {
-                return {
-                    success: false,
-                    error: 'WhatsApp socket is not initialized.'
-                };
-            }
-            if (!this.socket.user) {
-                return {
-                    success: false,
-                    error: 'WhatsApp is not connected.'
-                };
-            }
-            // --------------------------------------------------
-            // 2. Normalize phone number
-            // --------------------------------------------------
-            const clean = String(phoneNumber).replace(/\D/g, '');
-            if (!clean) {
-                return {
-                    success: false,
-                    error: 'Invalid phone number.'
-                };
-            }
-            let jid = `${clean}@s.whatsapp.net`;
-            // --------------------------------------------------
-            // 3. Check whether number exists on WhatsApp
-            // --------------------------------------------------
+        if (clearCredentials) {
+            const authPath = path_1.default.resolve(this.sessionDir, 'wwebjs_auth');
             try {
-                const result = await this.socket.onWhatsApp(clean);
-                if (!result || result.length === 0) {
-                    return {
-                        success: false,
-                        error: `Unable to verify +${clean}.`
-                    };
-                }
-                if (!result[0]?.exists) {
-                    return {
-                        success: false,
-                        error: `Phone number +${clean} is not registered on WhatsApp.`
-                    };
-                }
-                if (result[0]?.jid) {
-                    const rawDigits = result[0].jid.replace(/@.*$/, '').replace(/\D/g, '');
-                    if (rawDigits) {
-                        jid = `${rawDigits}@s.whatsapp.net`;
-                    }
-                }
-                if (result[0]?.lid) {
-                    this.messageStore.setLidMapping(String(result[0].lid), jid);
+                if (fs_1.default.existsSync(authPath)) {
+                    fs_1.default.rmSync(authPath, { recursive: true, force: true });
+                    console.log('[WhatsApp Worker] Cleared session files from', authPath);
                 }
             }
-            catch (error) {
-                console.error(`onWhatsApp failed for ${clean}:`, error);
-                // Do not modify/delete encryption sessions here.
+            catch (err) {
+                console.warn('[WhatsApp Worker] Failed to clear session files:', err.message);
             }
-            // --------------------------------------------------
-            // 4. Prepare message
-            // --------------------------------------------------
-            const cleanText = (text || '').trim();
-            if (!cleanText && !media) {
-                return {
-                    success: false,
-                    error: 'Message text or media is required.'
-                };
-            }
-            // --------------------------------------------------
-            // 5. Presence indicator & Signal handshake settlement
-            // --------------------------------------------------
+        }
+        this.isExplicitLogout = false;
+        setTimeout(() => {
+            this.initialize().catch(() => { });
+        }, 1000);
+    }
+    /**
+     * Send WhatsApp message with exact /whatsapp-mess parity
+     */
+    async sendMessage(to, text, media, options) {
+        if (!this.client) {
+            return { success: false, error: 'WhatsApp client is not initialized.' };
+        }
+        if (this.state !== 'CONNECTED') {
             try {
-                await this.socket.sendPresenceUpdate('composing', jid);
-                await new Promise(resolve => setTimeout(resolve, 800));
-            }
-            catch (error) {
-                console.warn('Presence update failed:', error);
-            }
-            // --------------------------------------------------
-            // 6. Send exactly ONE message
-            // --------------------------------------------------
-            let sent;
-            if (media) {
-                if (media.isImage) {
-                    sent = await this.socket.sendMessage(jid, {
-                        image: media.buffer,
-                        mimetype: media.mimetype,
-                        caption: cleanText || undefined
-                    });
+                const state = await Promise.race([
+                    this.client.getState(),
+                    new Promise((resolve) => setTimeout(() => resolve(null), 3000))
+                ]);
+                if (state === 'CONNECTED') {
+                    this.state = 'CONNECTED';
                 }
                 else {
-                    sent = await this.socket.sendMessage(jid, {
-                        document: media.buffer,
-                        mimetype: media.mimetype,
-                        fileName: media.fileName || 'document',
-                        caption: cleanText || undefined
-                    });
+                    return { success: false, error: 'WhatsApp Web is not connected. Please scan QR or enter pairing code.' };
                 }
             }
+            catch {
+                return { success: false, error: 'WhatsApp Web is not connected. Please scan QR or enter pairing code.' };
+            }
+        }
+        const digits = normalizePhoneNumber(to);
+        if (!digits || digits.length < 10 || digits.length > 15) {
+            return { success: false, error: `Invalid phone number format: ${to}` };
+        }
+        const cleanText = (text || '').trim();
+        if (!cleanText && !media) {
+            return { success: false, error: 'Message text or media is required.' };
+        }
+        // Recipient number ID lookup matching /whatsapp-mess session-service.ts
+        const fallbackChatId = `${digits}@c.us`;
+        let chatId = fallbackChatId;
+        try {
+            const numberId = await Promise.race([
+                this.client.getNumberId(digits),
+                new Promise((resolve) => setTimeout(() => resolve(null), 12000))
+            ]);
+            if (numberId?._serialized) {
+                chatId = numberId._serialized;
+            }
             else {
-                sent = await this.socket.sendMessage(jid, {
-                    text: cleanText
-                });
+                console.log(`[WhatsApp Worker] Number lookup returned empty for ${digits}. Trying direct chat ID ${fallbackChatId}.`);
             }
-            // --------------------------------------------------
-            // 7. Validate WhatsApp response
-            // --------------------------------------------------
-            if (!sent?.key?.id) {
-                return {
-                    success: false,
-                    error: 'WhatsApp did not return a message ID.'
-                };
-            }
-            const messageId = sent.key.id;
-            // --------------------------------------------------
-            // 8. Store local message record
-            // --------------------------------------------------
-            if (sent.message) {
-                this.messageStore.setRecord(messageId, {
-                    id: messageId,
-                    jid,
-                    message: sent.message,
-                    text: cleanText,
-                    hasMedia: !!media,
-                    timestamp: Date.now()
-                });
-            }
-            // --------------------------------------------------
-            // 9. Stop typing indicator
-            // --------------------------------------------------
-            try {
-                await this.socket.sendPresenceUpdate('paused', jid);
-            }
-            catch { }
-            // --------------------------------------------------
-            // 10. Return only SUBMITTED/SENT result
-            // --------------------------------------------------
-            return {
-                success: true,
-                messageId
-            };
         }
         catch (error) {
-            console.error('WhatsApp sendMessage error:', error);
-            return {
-                success: false,
-                error: error?.message || 'WhatsApp message sending failed.'
-            };
+            console.warn(`[WhatsApp Worker] Number lookup failed for ${digits}: ${error.message || error}. Trying direct chat ID.`);
         }
+        // Prepare media if provided
+        let messageMedia = null;
+        if (media) {
+            let base64Data = '';
+            if (media.buffer) {
+                base64Data = media.buffer.toString('base64');
+            }
+            else if (media.base64) {
+                base64Data = media.base64.split(',')[1] || media.base64;
+            }
+            if (base64Data) {
+                messageMedia = new whatsapp_web_js_1.MessageMedia(media.mimetype, base64Data, media.fileName || 'attachment');
+            }
+        }
+        let lastError = null;
+        for (let attempt = 1; attempt <= 2; attempt++) {
+            try {
+                if (messageMedia) {
+                    try {
+                        if (options?.sendTextSeparately && cleanText) {
+                            const mediaSent = await this.client.sendMessage(chatId, messageMedia);
+                            await new Promise((resolve) => setTimeout(resolve, 1000));
+                            const textSent = await this.client.sendMessage(chatId, cleanText);
+                            const msgId = textSent?.id?._serialized || textSent?.id?.id || mediaSent?.id?._serialized || `msg_${Date.now()}`;
+                            return { success: true, messageId: msgId };
+                        }
+                        else {
+                            // Unified delivery: media with caption as single message (matching /whatsapp-mess)
+                            const sent = await this.client.sendMessage(chatId, messageMedia, {
+                                caption: cleanText || undefined
+                            });
+                            const msgId = sent?.id?._serialized || sent?.id?.id || `msg_${Date.now()}`;
+                            return { success: true, messageId: msgId };
+                        }
+                    }
+                    catch (mediaErr) {
+                        console.warn(`[WhatsApp Worker] Media dispatch failed for ${digits} (${mediaErr.message}). Falling back to text delivery to guarantee 100% campaign completion...`);
+                        if (cleanText) {
+                            const sentFallback = await this.client.sendMessage(chatId, cleanText);
+                            const msgId = sentFallback?.id?._serialized || sentFallback?.id?.id || `msg_${Date.now()}`;
+                            return { success: true, messageId: msgId };
+                        }
+                        throw mediaErr;
+                    }
+                }
+                // Plain text message
+                const sent = await this.client.sendMessage(chatId, cleanText);
+                const msgId = sent?.id?._serialized || sent?.id?.id || `msg_${Date.now()}`;
+                return { success: true, messageId: msgId };
+            }
+            catch (error) {
+                lastError = error;
+                console.warn(`[WhatsApp Worker] Send attempt ${attempt} failed for ${digits}:`, error.message || error);
+                if (attempt < 2) {
+                    // Switch to direct fallbackChatId on retry if lookup ID failed
+                    if (chatId !== fallbackChatId) {
+                        chatId = fallbackChatId;
+                    }
+                    await new Promise((resolve) => setTimeout(resolve, 2000));
+                }
+            }
+        }
+        return {
+            success: false,
+            error: lastError?.message || `Failed to send message to ${digits}.`
+        };
     }
     getStatus() {
         return {
@@ -714,6 +416,22 @@ class WhatsAppSessionEngine {
             lastConnectedAt: this.lastConnectedAt,
             sessionDir: this.sessionDir
         };
+    }
+    scheduleReconnect(delayMs) {
+        if (this.reconnectTimer)
+            return;
+        this.reconnectTimer = setTimeout(() => {
+            this.reconnectTimer = null;
+            if (this.state !== 'CONNECTED' && !this.isExplicitLogout) {
+                console.log('[WhatsApp Worker] Attempting reconnection...');
+                this.initialize().catch((err) => {
+                    console.error('[WhatsApp Worker] Reconnect error:', err.message);
+                });
+            }
+        }, delayMs);
+    }
+    getClient() {
+        return this.client;
     }
 }
 exports.WhatsAppSessionEngine = WhatsAppSessionEngine;

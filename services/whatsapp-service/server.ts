@@ -176,17 +176,21 @@ app.post('/campaign/start', verifySecret, async (req, res) => {
 
       activeCampaign.currentIndex = i;
       const contact = contacts[i];
+      const safeName = (contact.name || 'Friend').trim();
+      const firstName = safeName.split(' ')[0] || safeName;
+      const phone = contact.phoneNumber || '';
 
       const renderedText = (template || '')
-        .replace(/\{name\}/gi, contact.name || 'Friend')
-        .replace(/\{phone\}/gi, contact.phoneNumber)
-        .replace(/\{number\}/gi, contact.phoneNumber);
+        .replace(/(\{\{\s*(?:name|customer|customer_name|contact|contact_name)\s*\}\}|\{\s*(?:name|customer|customer_name|contact|contact_name)\s*\}|\[\s*(?:name|customer|customer_name|contact|contact_name)\s*\]|%\s*(?:name|customer|contact)\s*%|\{\{\s*1\s*\}\}|\{\s*1\s*\})/gi, safeName)
+        .replace(/(\{\{\s*first_name\s*\}\}|\{\s*first_name\s*\}|\[\s*first_name\s*\])/gi, firstName)
+        .replace(/(\{\{\s*(?:phone|number|mobile)\s*\}\}|\{\s*(?:phone|number|mobile)\s*\}|\[\s*(?:phone|number|mobile)\s*\]|\{\{\s*2\s*\}\}|\{\s*2\s*\})/gi, phone)
+        .replace(/(\{\{\s*random\s*\}\}|\{\s*random\s*\})/gi, Math.random().toString(36).substring(2, 7).toUpperCase());
 
       const delayMs = (delaySeconds + (Math.random() * 1.5 - 0.75)) * 1000;
       await new Promise(r => setTimeout(r, Math.max(1500, delayMs)));
 
       const result = await engine.sendMessage(contact.phoneNumber, renderedText, media, {
-        sendTextSeparately: sendTextSeparately !== false
+        sendTextSeparately: sendTextSeparately === true
       });
 
       if (result.success) {

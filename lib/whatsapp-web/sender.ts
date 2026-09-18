@@ -33,12 +33,12 @@ export class WhatsAppSenderEngine {
     const phone = contact.phoneNumber || '';
 
     return template
-      // Name: {{name}}, {name}, [name], %name%, {{1}}, {1}
-      .replace(/(\{\{\s*name\s*\}\}|\{\s*name\s*\}|\[\s*name\s*\]|%\s*name\s*%|\{\{\s*1\s*\}\}|\{\s*1\s*\})/gi, safeName)
+      // Name: {{name}}, {name}, [name], %name%, {{1}}, {1}, {{customer}}, {customer}, {{contact}}, {contact}
+      .replace(/(\{\{\s*(?:name|customer|customer_name|contact|contact_name)\s*\}\}|\{\s*(?:name|customer|customer_name|contact|contact_name)\s*\}|\[\s*(?:name|customer|customer_name|contact|contact_name)\s*\]|%\s*(?:name|customer|contact)\s*%|\{\{\s*1\s*\}\}|\{\s*1\s*\})/gi, safeName)
       // First name: {{first_name}}, {first_name}
       .replace(/(\{\{\s*first_name\s*\}\}|\{\s*first_name\s*\}|\[\s*first_name\s*\])/gi, firstName)
       // Phone: {{phone}}, {phone}, {{number}}, {number}, {{2}}, {2}
-      .replace(/(\{\{\s*(?:phone|number)\s*\}\}|\{\s*(?:phone|number)\s*\}|\[\s*(?:phone|number)\s*\]|\{\{\s*2\s*\}\}|\{\s*2\s*\})/gi, phone)
+      .replace(/(\{\{\s*(?:phone|number|mobile)\s*\}\}|\{\s*(?:phone|number|mobile)\s*\}|\[\s*(?:phone|number|mobile)\s*\]|\{\{\s*2\s*\}\}|\{\s*2\s*\})/gi, phone)
       // Random: {{random}}, {random}
       .replace(/(\{\{\s*random\s*\}\}|\{\s*random\s*\})/gi, Math.random().toString(36).substring(2, 7).toUpperCase());
   }

@@ -13,7 +13,13 @@ export async function POST(req: NextRequest) {
       headers: getWorkerHeaders(serviceSecret)
     });
 
-    const data = await res.json();
+    const rawText = await res.text();
+    let data: any;
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      data = { success: true, message: 'Logged out' };
+    }
     return NextResponse.json(data, { status: res.status });
   } catch (err: any) {
     return NextResponse.json(

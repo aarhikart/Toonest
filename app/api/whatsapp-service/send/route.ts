@@ -29,7 +29,18 @@ export async function POST(req: NextRequest) {
     });
     clearTimeout(timeout);
 
-    const data = await res.json();
+    const rawText = await res.text();
+    let data: any;
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      data = {
+        success: false,
+        error: res.status === 502 || res.status === 504 || rawText.includes('<!DOCTYPE')
+          ? `WhatsApp local worker daemon is offline on port 5001 (Gateway returned ${res.status}). Please start the worker.`
+          : `Unexpected worker response (${res.status}): ${rawText.substring(0, 100)}`
+      };
+    }
     return NextResponse.json(data, { status: res.status });
   } catch (err: any) {
     const isOffline = err.name === 'AbortError' || err.code === 'ECONNREFUSED' || err.message?.includes('fetch failed');
