@@ -43,4 +43,5 @@ next-env.d.ts
 # WhatsApp Web worker sessions
 services/whatsapp-service/sessions/
 services/whatsapp-service/dist/
+services/whatsapp-service/.wwebjs_cache/
 

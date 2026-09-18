@@ -29,6 +29,14 @@ engine.initialize();
 app.use(cors());
 app.use(express.json({ limit: '25mb' }));
 
+// Strip optional /api/whatsapp-service prefix when deployed behind monorepo service rewrites
+app.use((req, res, next) => {
+  if (req.url.startsWith('/api/whatsapp-service')) {
+    req.url = req.url.replace('/api/whatsapp-service', '') || '/';
+  }
+  next();
+});
+
 // Secret verification middleware
 const verifySecret = (req: Request, res: Response, next: NextFunction) => {
   const token = req.headers['x-service-key'] || req.headers['authorization']?.replace('Bearer ', '');

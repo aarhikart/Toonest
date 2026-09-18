@@ -26,6 +26,13 @@ const engine = new whatsapp_1.WhatsAppSessionEngine(SESSIONS_PATH);
 engine.initialize();
 app.use((0, cors_1.default)());
 app.use(express_1.default.json({ limit: '25mb' }));
+// Strip optional /api/whatsapp-service prefix when deployed behind monorepo service rewrites
+app.use((req, res, next) => {
+    if (req.url.startsWith('/api/whatsapp-service')) {
+        req.url = req.url.replace('/api/whatsapp-service', '') || '/';
+    }
+    next();
+});
 // Secret verification middleware
 const verifySecret = (req, res, next) => {
     const token = req.headers['x-service-key'] || req.headers['authorization']?.replace('Bearer ', '');

@@ -9,20 +9,20 @@
     "dev": "ts-node-dev --respawn server.ts"
   },
   "dependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.12.7",
+    "@types/qrcode": "^1.5.5",
     "@whiskeysockets/baileys": "^6.7.8",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "pino": "^9.1.0",
     "qrcode": "^1.5.3",
+    "typescript": "^5.4.5",
     "whatsapp-web.js": "^1.34.7"
   },
   "devDependencies": {
-    "@types/cors": "^2.8.17",
-    "@types/express": "^4.17.21",
-    "@types/node": "^20.12.7",
-    "@types/qrcode": "^1.5.5",
-    "ts-node-dev": "^2.0.0",
-    "typescript": "^5.4.5"
+    "ts-node-dev": "^2.0.0"
   }
 }

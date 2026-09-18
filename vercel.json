@@ -1,0 +1,25 @@
+{
+  "services": {
+    "frontend": {
+      "root": ".",
+      "framework": "nextjs"
+    },
+    "whatsapp-service": {
+      "root": "services/whatsapp-service"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/whatsapp-service/(.*)",
+      "destination": {
+        "service": "whatsapp-service"
+      }
+    },
+    {
+      "source": "/(.*)",
+      "destination": {
+        "service": "frontend"
+      }
+    }
+  ]
+}
