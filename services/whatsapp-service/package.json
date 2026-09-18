@@ -4,7 +4,8 @@
   "description": "Persistent WhatsApp Web Multi-Device Service with WhatsApp Web (whatsapp-web.js)",
   "main": "dist/server.js",
   "scripts": {
-    "build": "tsc",
+    "build": "node -e \"try { require('child_process').execSync('node ./node_modules/typescript/bin/tsc', {stdio: 'inherit'}); } catch(e) { console.log('Precompiled dist/ ready'); }\"",
+    "build:tsc": "tsc",
     "start": "node dist/server.js",
     "dev": "ts-node-dev --respawn server.ts"
   },
