@@ -293,18 +293,25 @@ export const WhatsAppMessageComposer: React.FC<WhatsAppMessageComposerProps> = (
                 <Sliders className="w-3.5 h-3.5 text-[#5722AF]" />
                 Safe Delay Between Messages:
               </span>
-              <span className="font-bold text-[#5722AF] dark:text-purple-300">{delaySeconds} seconds</span>
+              <span className="font-bold text-[#5722AF] dark:text-purple-300">{delaySeconds < 7 ? 7 : delaySeconds} seconds</span>
             </div>
-            <input
-              type="range"
-              min={4}
-              max={20}
-              value={delaySeconds}
-              onChange={e => onDelayChange(parseInt(e.target.value, 10))}
-              className="w-full accent-[#5722AF]"
-            />
+            <div className="space-y-1">
+              <input
+                type="range"
+                min={7}
+                max={60}
+                value={delaySeconds < 7 ? 7 : delaySeconds}
+                onChange={e => onDelayChange(Math.max(7, Math.min(60, parseInt(e.target.value, 10) || 7)))}
+                className="w-full accent-[#5722AF] cursor-pointer"
+              />
+              <div className="flex justify-between text-[10px] text-zinc-400 font-mono">
+                <span>7s (Min)</span>
+                <span>30s</span>
+                <span>60s (Max)</span>
+              </div>
+            </div>
             <p className="text-[10px] text-zinc-500">
-              Recommended: 5s+. Allows WhatsApp Signal E2EE ratchets to synchronize across contacts, guaranteeing 100% decrypted message delivery without &quot;Waiting for this message&quot; placeholders.
+              Configurable from 7 to 60 seconds. Guarantees safe pacing to protect your account from spam detection and allows WhatsApp Signal E2EE ratchets to synchronize across contacts.
             </p>
           </div>
         </div>

@@ -32,7 +32,7 @@ const faqs: FAQItem[] = [
   {
     question: 'How does the platform protect my account from getting banned?',
     answer:
-      'We incorporate strict anti-ban guardrails: (1) Customizable delay intervals (recommended 5 to 15 seconds) between messages to emulate human rhythm; (2) Dynamic name and phone personalization tags ({name}, {phone}) so every outgoing message has a unique payload; and (3) Built-in rate limiting to prevent spam flagging.'
+      'We incorporate strict anti-ban guardrails: (1) Customizable delay intervals (7 to 60 seconds) between messages to emulate human rhythm; (2) Dynamic name and phone personalization tags ({name}, {phone}) so every outgoing message has a unique payload; and (3) Built-in rate limiting to prevent spam flagging.'
   },
   {
     question: 'Can multiple users share the same Worker Gateway URL at the same time?',

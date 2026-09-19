@@ -132,7 +132,8 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
 
       // Safe anti-ban & Signal session settlement delay between consecutive contacts
       if (i > 0) {
-        const safeDelayMs = Math.max(4000, (delaySeconds + (Math.random() * 1.5 - 0.75)) * 1000);
+        const effectiveDelay = Math.max(7, Math.min(60, delaySeconds || 7));
+        const safeDelayMs = Math.max(7000, (effectiveDelay + (Math.random() * 1.5 - 0.75)) * 1000);
         await new Promise(r => setTimeout(r, safeDelayMs));
       }
 

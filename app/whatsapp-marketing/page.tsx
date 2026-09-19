@@ -63,7 +63,7 @@ export default function WhatsAppMarketingPage() {
   const [messageTemplate, setMessageTemplate] = useState<string>(
     'Hi {name}! 🎉 We are excited to announce our exclusive annual offer. Reply to this message to claim your code!'
   );
-  const [delaySeconds, setDelaySeconds] = useState<number>(5);
+  const [delaySeconds, setDelaySeconds] = useState<number>(7);
 
   // Media Attachment State (Image / Document)
   const [media, setMedia] = useState<MediaAttachment | null>(null);

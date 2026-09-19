@@ -114,7 +114,7 @@ export const WhatsAppStepGuideModal: React.FC<WhatsAppStepGuideModalProps> = ({
         },
         {
           title: 'Anti-Ban Delay Throttling',
-          desc: 'Adjust the interval slider between messages (recommended: 5–8 seconds). Random micro-delays are added automatically to protect your number.'
+          desc: 'Adjust the interval slider between messages (7 to 60 seconds). Random micro-delays are added automatically to emulate human behavior and protect your number.'
         }
       ],
       tips: [
