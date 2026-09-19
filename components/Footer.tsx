@@ -4,11 +4,15 @@ import React from 'react';
 import Link from 'next/link';
 import { Layers, Heart, Shield } from 'lucide-react';
 
-export function Footer() {
+interface FooterProps {
+  hideToolsList?: boolean;
+}
+
+export function Footer({ hideToolsList = false }: FooterProps) {
   return (
     <footer className="mt-auto border-t border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-[#0c0e14] transition-colors">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-12">
-        <div className="flex flex-col md:flex-row items-center justify-between gap-6 pb-8 border-b border-zinc-100 dark:border-zinc-800">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
+        <div className={`flex flex-col md:flex-row items-center justify-between gap-6 ${hideToolsList ? '' : 'pb-8 border-b border-zinc-100 dark:border-zinc-800'}`}>
           {/* Brand Info */}
           <div className="flex flex-col items-center md:items-start text-center md:text-left space-y-1.5">
             <div className="flex items-center gap-2">
@@ -25,8 +29,9 @@ export function Footer() {
           </div>
 
           {/* Navigation Links */}
-          <div className="flex flex-wrap justify-center items-center gap-5 text-xs font-medium text-zinc-600 dark:text-zinc-400">
-            <Link href="/" className="hover:text-[#5722AF] dark:hover:text-[#9B6BE8] transition-colors">
+          {!hideToolsList && (
+            <div className="flex flex-wrap justify-center items-center gap-5 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+              <Link href="/" className="hover:text-[#5722AF] dark:hover:text-[#9B6BE8] transition-colors">
               Bulk Rename.
             </Link>
             <Link href="/convert" className="hover:text-[#5722AF] dark:hover:text-[#9B6BE8] transition-colors">
@@ -122,12 +127,12 @@ export function Footer() {
             <Link href="/date-time-difference-calculator" className="hover:text-[#5722AF] dark:hover:text-[#9B6BE8] transition-colors">
               Date & Time Difference
             </Link>
-          </div>
-
+            </div>
+          )}
         </div>
 
         {/* Bottom copyright */}
-        <div className="pt-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-zinc-400 dark:text-zinc-500">
+        <div className={`${hideToolsList ? 'pt-5 border-t border-zinc-100 dark:border-zinc-800/60' : 'pt-6'} flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-zinc-400 dark:text-zinc-500`}>
           <div>
             © 2026 ToolNest. All rights reserved.
           </div>

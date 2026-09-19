@@ -116,9 +116,17 @@ export default function WhatsAppMarketingPage() {
     }
   };
 
-  // Initialize from persistent storage & auth
+  // Initialize from persistent storage & auth + default to dark theme on /whatsapp-marketing
   useEffect(() => {
     checkAuth();
+    try {
+      const storedTheme = localStorage.getItem('toolnest_theme');
+      if (storedTheme === 'light') {
+        document.documentElement.classList.remove('dark');
+      } else {
+        document.documentElement.classList.add('dark');
+      }
+    } catch {}
   }, []);
 
   const handleLogout = async () => {
@@ -441,7 +449,7 @@ export default function WhatsAppMarketingPage() {
         />
       </main>
 
-      <Footer />
+      <Footer hideToolsList={true} />
     </div>
   );
 }

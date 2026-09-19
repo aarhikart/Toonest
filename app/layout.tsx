@@ -35,11 +35,18 @@ export default function RootLayout({
             __html: `
               try {
                 const storedTheme = localStorage.getItem('toolnest_theme');
-                // Default is light unless explicitly set to dark
-                if (storedTheme === 'dark') {
+                const isWhatsAppPage = window.location.pathname.startsWith('/whatsapp-marketing') || window.location.pathname === '/';
+                if (storedTheme === 'light') {
+                  document.documentElement.classList.remove('dark');
+                } else if (storedTheme === 'dark') {
                   document.documentElement.classList.add('dark');
                 } else {
-                  document.documentElement.classList.remove('dark');
+                  // Default is dark on /whatsapp-marketing, light on other pages
+                  if (isWhatsAppPage) {
+                    document.documentElement.classList.add('dark');
+                  } else {
+                    document.documentElement.classList.remove('dark');
+                  }
                 }
               } catch (e) {}
             `,
