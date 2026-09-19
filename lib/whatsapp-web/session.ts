@@ -13,14 +13,7 @@ export class WhatsAppSessionManager {
     try {
       let uid = localStorage.getItem(USER_ID_KEY);
       if (!uid) {
-        // If this browser already had a saved session or worker URL, keep them on 'default' so their connected session continues seamlessly
-        const existingSession = localStorage.getItem(STORAGE_KEY);
-        const existingWorker = localStorage.getItem('toolnest_wa_worker_url');
-        if (existingSession || existingWorker) {
-          uid = 'default';
-        } else {
-          uid = 'usr_' + Math.random().toString(36).substring(2, 8) + Date.now().toString(36);
-        }
+        uid = 'default';
         localStorage.setItem(USER_ID_KEY, uid);
       }
       // Ensure cookie is synced

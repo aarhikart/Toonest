@@ -509,6 +509,20 @@ class MultiSessionManager {
         }
         return results;
     }
+    getActiveConnectedSession() {
+        // 1. Check if default is connected
+        const defaultEngine = this.sessions.get('default');
+        if (defaultEngine && defaultEngine.getStatus().isConnected && defaultEngine.getClient()) {
+            return defaultEngine;
+        }
+        // 2. Return any active connected session
+        for (const engine of this.sessions.values()) {
+            if (engine.getStatus().isConnected && engine.getClient()) {
+                return engine;
+            }
+        }
+        return null;
+    }
     async autoRestoreSessions() {
         try {
             if (!fs_1.default.existsSync(this.sessionDir))

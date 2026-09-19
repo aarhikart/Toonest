@@ -101,6 +101,9 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
 
       // Detect authenticated session
       if (data.isConnected && data.user) {
+        if (data.userId) {
+          WhatsAppSessionManager.setUserId(data.userId);
+        }
         const updatedSession: WhatsAppWebSession = {
           connected: true,
           phoneNumber: data.user.phoneNumber || data.user.id || 'Connected Account',

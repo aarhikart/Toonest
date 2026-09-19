@@ -589,6 +589,21 @@ export class MultiSessionManager {
     return results;
   }
 
+  public getActiveConnectedSession(): WhatsAppSessionEngine | null {
+    // 1. Check if default is connected
+    const defaultEngine = this.sessions.get('default');
+    if (defaultEngine && defaultEngine.getStatus().isConnected && defaultEngine.getClient()) {
+      return defaultEngine;
+    }
+    // 2. Return any active connected session
+    for (const engine of this.sessions.values()) {
+      if (engine.getStatus().isConnected && engine.getClient()) {
+        return engine;
+      }
+    }
+    return null;
+  }
+
   public async autoRestoreSessions(): Promise<void> {
     try {
       if (!fs.existsSync(this.sessionDir)) return;
