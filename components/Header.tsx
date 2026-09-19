@@ -13,15 +13,17 @@ import {
 } from 'lucide-react';
 
 interface HeaderProps {
-  onToggleSidebar: () => void;
+  onToggleSidebar?: () => void;
   onOpenHelp: () => void;
   activeToolName?: string;
+  hideBrowseTools?: boolean;
 }
 
 export function Header({
   onToggleSidebar,
   onOpenHelp,
   activeToolName = 'Image Bulk Rename',
+  hideBrowseTools = false,
 }: HeaderProps) {
   const [isDark, setIsDark] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -50,21 +52,23 @@ export function Header({
         {/* Left: Sidebar Toggle + ToolNest Brand + Current Tool Indicator */}
         <div className="flex items-center gap-3">
           {/* Dedicated Sidebar Toggle Button */}
-          <button
-            type="button"
-            onClick={onToggleSidebar}
-            className="p-2 rounded-xl text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 border border-zinc-200/80 dark:border-zinc-700/80 transition-colors flex items-center gap-1.5 focus:outline-none focus:ring-2 focus:ring-[#5722AF]"
-            title="Open ToolNest Suite Sidebar"
-            aria-label="Toggle ToolNest sidebar"
-          >
-            <PanelLeft className="w-4 h-4 text-[#5722AF] dark:text-[#9B6BE8]" />
-            <span className="hidden sm:inline text-xs font-semibold">Tools</span>
-          </button>
+          {!hideBrowseTools && onToggleSidebar && (
+            <button
+              type="button"
+              onClick={onToggleSidebar}
+              className="p-2 rounded-xl text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 border border-zinc-200/80 dark:border-zinc-700/80 transition-colors flex items-center gap-1.5 focus:outline-none focus:ring-2 focus:ring-[#5722AF]"
+              title="Open ToolNest Suite Sidebar"
+              aria-label="Toggle ToolNest sidebar"
+            >
+              <PanelLeft className="w-4 h-4 text-[#5722AF] dark:text-[#9B6BE8]" />
+              <span className="hidden sm:inline text-xs font-semibold">Tools</span>
+            </button>
+          )}
 
           {/* ToolNest Brand Logo & Tool Badge */}
           <div className="flex items-center gap-2.5">
             <a
-              href="#"
+              href="/"
               className="flex items-center gap-2 group focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5722AF] rounded-lg"
             >
               <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#5722AF] to-[#7B45D1] flex items-center justify-center text-white shadow-xs shadow-[#5722AF]/25 group-hover:scale-[1.02] transition-transform">
@@ -86,13 +90,15 @@ export function Header({
 
         {/* Center Navigation Links */}
         <nav className="hidden md:flex items-center gap-7 text-xs font-semibold text-zinc-600 dark:text-zinc-400">
-          <button
-            type="button"
-            onClick={onToggleSidebar}
-            className="hover:text-[#5722AF] dark:hover:text-[#9B6BE8] transition-colors"
-          >
-            All Tools
-          </button>
+          {!hideBrowseTools && onToggleSidebar && (
+            <button
+              type="button"
+              onClick={onToggleSidebar}
+              className="hover:text-[#5722AF] dark:hover:text-[#9B6BE8] transition-colors"
+            >
+              All Tools
+            </button>
+          )}
           <a
             href="#how-it-works"
             className="hover:text-[#5722AF] dark:hover:text-[#9B6BE8] transition-colors"
@@ -149,21 +155,25 @@ export function Header({
       {/* Mobile Dropdown Menu */}
       {mobileMenuOpen && (
         <div className="md:hidden border-t border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#0c0e14] px-4 py-4 space-y-2 animate-in slide-in-from-top-2">
-          <div className="pb-2 mb-2 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
-            <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase">
-              Current: {activeToolName}
-            </span>
-            <button
-              onClick={() => {
-                setMobileMenuOpen(false);
-                onToggleSidebar();
-              }}
-              className="text-xs font-bold text-[#5722AF] dark:text-[#9B6BE8] flex items-center gap-1"
-            >
-              <PanelLeft className="w-3.5 h-3.5" />
-              <span>Browse All Tools</span>
-            </button>
-          </div>
+          {!hideBrowseTools && (
+            <div className="pb-2 mb-2 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
+              <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase">
+                Current: {activeToolName}
+              </span>
+              {onToggleSidebar && (
+                <button
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    onToggleSidebar();
+                  }}
+                  className="text-xs font-bold text-[#5722AF] dark:text-[#9B6BE8] flex items-center gap-1"
+                >
+                  <PanelLeft className="w-3.5 h-3.5" />
+                  <span>Browse All Tools</span>
+                </button>
+              )}
+            </div>
+          )}
 
           <a
             href="#how-it-works"

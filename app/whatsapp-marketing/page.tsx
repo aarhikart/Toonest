@@ -10,20 +10,16 @@ import {
   Users,
   Send,
   Sparkles,
-  ChevronRight,
   ShieldCheck,
   Zap,
   Sliders,
   HelpCircle,
   Radio,
   Server,
-  Trash2,
   Loader2
 } from 'lucide-react';
 import { Header } from '@/components/Header';
-import { Sidebar } from '@/components/Sidebar';
 import { Footer } from '@/components/Footer';
-import { HelpModal } from '@/components/HelpModal';
 import { WhatsAppWebConnect } from '@/components/whatsapp-web/WhatsAppWebConnect';
 import { WhatsAppContactList } from '@/components/whatsapp-web/WhatsAppContactList';
 import { WhatsAppMessageComposer, MediaAttachment } from '@/components/whatsapp-web/WhatsAppMessageComposer';
@@ -35,6 +31,7 @@ import { WhatsAppAuthModal } from '@/components/whatsapp-web/WhatsAppAuthModal';
 import { WhatsAppAdminDashboard } from '@/components/whatsapp-web/WhatsAppAdminDashboard';
 import { WhatsAppUserBar } from '@/components/whatsapp-web/WhatsAppUserBar';
 import { WhatsAppStepGuideModal } from '@/components/whatsapp-web/WhatsAppStepGuideModal';
+import { WhatsAppInfoSections } from '@/components/whatsapp-web/WhatsAppInfoSections';
 
 interface CurrentUser {
   id: string;
@@ -46,8 +43,6 @@ interface CurrentUser {
 }
 
 export default function WhatsAppMarketingPage() {
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [activeGuideStep, setActiveGuideStep] = useState<number | null>(null);
 
   // Authentication State
@@ -202,44 +197,11 @@ export default function WhatsAppMarketingPage() {
     <div className="min-h-screen bg-zinc-50 dark:bg-[#0a0d14] text-zinc-900 dark:text-zinc-100 flex flex-col transition-colors">
       <Header
         activeToolName="WhatsApp Marketing Platform"
-        onToggleSidebar={() => setIsSidebarOpen(true)}
-        onOpenHelp={() => setIsHelpOpen(true)}
+        hideBrowseTools={true}
+        onOpenHelp={() => setActiveGuideStep(1)}
       />
-
-      <Sidebar
-        isOpen={isSidebarOpen}
-        onClose={() => setIsSidebarOpen(false)}
-        onOpenHelp={() => setIsHelpOpen(true)}
-        activeToolId="whatsapp-marketing"
-      />
-
-      <HelpModal isOpen={isHelpOpen} onClose={() => setIsHelpOpen(false)} />
 
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 space-y-8">
-        {/* Breadcrumb Navigation & Top Action Bar */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-            <Link href="/" className="hover:text-[#5722AF] dark:hover:text-[#9B6BE8] transition-colors">
-              Home
-            </Link>
-            <ChevronRight className="w-3.5 h-3.5" />
-            <span className="text-zinc-400 dark:text-zinc-500">Business &amp; Marketing</span>
-            <ChevronRight className="w-3.5 h-3.5" />
-            <span className="font-semibold text-zinc-900 dark:text-white">WhatsApp Web Bulk Sender</span>
-          </nav>
-
-          {currentUser && (
-            <button
-              onClick={handleClearBrowserData}
-              title="Delete all stored browser data, saved worker URLs, contacts, and drafts"
-              className="self-start sm:self-auto px-3.5 py-1.5 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/30 dark:hover:bg-rose-950/60 text-rose-700 dark:text-rose-300 text-xs font-semibold flex items-center gap-1.5 transition shadow-2xs cursor-pointer"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Delete Browser Data</span>
-            </button>
-          )}
-        </div>
-
         {/* Auth Loading State */}
         {isAuthLoading ? (
           <div className="py-24 text-center space-y-3">
@@ -431,6 +393,9 @@ export default function WhatsAppMarketingPage() {
             </section>
           </div>
         )}
+
+        {/* Dedicated WhatsApp Marketing Guide, Privacy & FAQ Sections */}
+        <WhatsAppInfoSections />
 
         {/* Interactive 4-Step Guide Modal */}
         <WhatsAppStepGuideModal

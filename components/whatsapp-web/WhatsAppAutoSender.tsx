@@ -325,7 +325,7 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
 
         {/* Dispatch Mode Selector & Controls */}
         <div className="flex items-center gap-2">
-          <div className="flex items-center bg-zinc-100 dark:bg-zinc-800 p-1 rounded-xl border border-zinc-200 dark:border-zinc-700 text-xs">
+          <div className="flex items-center hidden bg-zinc-100 dark:bg-zinc-800 p-1 rounded-xl border border-zinc-200 dark:border-zinc-700 text-xs">
             <button
               onClick={() => setDispatchMode('WORKER')}
               className={`px-2.5 py-1 rounded-lg font-semibold transition ${
@@ -339,7 +339,7 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
             </button>
             <button
               onClick={() => setDispatchMode('BROWSER_TABS')}
-              className={`px-2.5 py-1 rounded-lg font-semibold transition ${
+              className={`px-2.5 py-1 rounded-lg hidden font-semibold transition ${
                 dispatchMode === 'BROWSER_TABS'
                   ? 'bg-white dark:bg-zinc-700 text-[#5722AF] dark:text-purple-300 shadow-xs'
                   : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'

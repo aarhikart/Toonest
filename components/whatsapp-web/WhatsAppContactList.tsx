@@ -149,7 +149,7 @@ export const WhatsAppContactList: React.FC<WhatsAppContactListProps> = ({
 
           <button
             onClick={handleLoadSample}
-            className="px-3 py-1.5 border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5 transition"
+            className="px-3 py-1.5 border hidden border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5 transition"
           >
             <Sparkles className="w-3.5 h-3.5 text-amber-500" />
             Load Sample

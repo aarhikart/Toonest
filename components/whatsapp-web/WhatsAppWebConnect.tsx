@@ -306,7 +306,7 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
             {/* Cloud Worker URL Settings Trigger */}
             <button
               onClick={() => setShowConfig(!showConfig)}
-              className="p-1 text-zinc-400 hover:text-[#5722AF] rounded-lg transition"
+              className="p-1 text-zinc-400 hidden hover:text-[#5722AF] rounded-lg transition"
               title="Configure Worker Gateway URL"
             >
               <Settings className="w-3.5 h-3.5" />
