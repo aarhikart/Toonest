@@ -58,7 +58,7 @@ export const WhatsAppUserBar: React.FC<WhatsAppUserBarProps> = ({
 
   return (
     <>
-      <div className="p-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="p-4 bg-gradient-to-br from-white via-white to-purple-50/20 dark:from-[#131620] dark:via-zinc-900 dark:to-zinc-900 border border-zinc-200/90 dark:border-zinc-800 rounded-2xl shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         {/* User Identity Info */}
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-purple-100 dark:bg-purple-950/60 text-[#5722AF] dark:text-purple-300 flex items-center justify-center font-bold text-sm">
