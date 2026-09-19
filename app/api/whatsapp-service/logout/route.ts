@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getWhatsAppServiceUrl, getWhatsAppServiceSecret, getWorkerHeaders } from '@/lib/whatsapp-web/config';
+import { getWhatsAppServiceUrl, getWhatsAppServiceSecret, getWorkerHeaders, getWorkerUserId } from '@/lib/whatsapp-web/config';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   const serviceUrl = getWhatsAppServiceUrl(req);
   const serviceSecret = getWhatsAppServiceSecret();
+  const userId = getWorkerUserId(req);
 
   try {
     const res = await fetch(`${serviceUrl}/logout`, {
       method: 'POST',
-      headers: getWorkerHeaders(serviceSecret)
+      headers: getWorkerHeaders(serviceSecret, userId)
     });
 
     const rawText = await res.text();

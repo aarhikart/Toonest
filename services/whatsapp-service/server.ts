@@ -1,11 +1,11 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { WhatsAppSessionEngine } from './whatsapp';
+import { MultiSessionManager } from './whatsapp';
 
 dotenv.config();
 
-// Production Process Resilience: Prevent transient Baileys socket closes from crashing the worker daemon
+// Production Process Resilience: Prevent transient socket closes or unhandled promises from crashing the worker daemon
 process.on('unhandledRejection', (reason: any) => {
   const msg = reason?.message || String(reason);
   console.warn('[WhatsApp Worker Daemon] Intercepted unhandledRejection (process kept alive):', msg);
@@ -21,10 +21,14 @@ const PORT = process.env.PORT || 5001;
 const SERVICE_SECRET = process.env.WHATSAPP_SERVICE_SECRET || 'toolnest_secure_service_token_2026';
 const SESSIONS_PATH = process.env.WHATSAPP_SESSIONS_DIR || './sessions';
 
-const engine = new WhatsAppSessionEngine(SESSIONS_PATH);
+// Multi-Tenant Session Manager
+const sessionManager = new MultiSessionManager(SESSIONS_PATH);
 
-// Automatically initialize connection on service boot
-engine.initialize();
+// Auto-restore any existing authenticated sessions from disk on boot
+sessionManager.autoRestoreSessions().then(() => {
+  // Ensure default session is initialized if none exists
+  sessionManager.getSession('default', true);
+});
 
 app.use(cors());
 app.use(express.json({ limit: '25mb' }));
@@ -46,62 +50,122 @@ const verifySecret = (req: Request, res: Response, next: NextFunction) => {
   next();
 };
 
+// Helper: Extract userId from header, query, or body
+function getUserId(req: Request): string {
+  const headerId = (req.headers['x-user-id'] as string) || '';
+  if (headerId.trim()) return headerId.trim();
+  if (req.query.userId && typeof req.query.userId === 'string') return req.query.userId.trim();
+  if (req.body?.userId && typeof req.body.userId === 'string') return req.body.userId.trim();
+  return 'default';
+}
+
 // Public health check
 app.get('/health', (req, res) => {
+  const allSessions = sessionManager.listSessions();
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    service: 'ToolNest Persistent WhatsApp Worker',
+    service: 'ToolNest Persistent Multi-Tenant WhatsApp Worker',
+    uptime: process.uptime(),
+    activeSessionsCount: allSessions.length,
+    connectedSessionsCount: allSessions.filter(s => s.status.isConnected).length
+  });
+});
+
+// Diagnostic sessions list (admin view of all tenants)
+app.get('/sessions', verifySecret, (req, res) => {
+  const sessions = sessionManager.listSessions();
+  res.json({
+    total: sessions.length,
+    sessions,
+    memoryUsage: process.memoryUsage(),
     uptime: process.uptime()
   });
 });
 
-// 1. Get Connection Status (State, QR code data url, user info)
+// 1. Get Connection Status (State, QR code data url, user info) for specific tenant
 app.get('/status', verifySecret, (req, res) => {
+  const userId = getUserId(req);
+  const engine = sessionManager.getSession(userId, true);
+  if (!engine) {
+    return res.json({
+      state: 'DISCONNECTED',
+      isConnected: false,
+      qrCodeDataUrl: null,
+      pairingCode: null,
+      user: null,
+      lastConnectedAt: null,
+      sessionDir: SESSIONS_PATH,
+      userId
+    });
+  }
   const status = engine.getStatus();
   res.json(status);
 });
 
-// 2. Request Pairing Code for a Phone Number
+// 2. Request Pairing Code for a Phone Number (Tenant Scoped)
 app.post('/pair', verifySecret, async (req, res) => {
   try {
+    const userId = getUserId(req);
+    const engine = sessionManager.getSession(userId, true);
+    if (!engine) {
+      return res.status(500).json({ success: false, error: `Could not allocate session for user ${userId}` });
+    }
+
     const { phoneNumber } = req.body;
     if (!phoneNumber) {
       return res.status(400).json({ error: 'phoneNumber is required' });
     }
+
     const code = await engine.requestPairingCode(phoneNumber);
     const formattedCode = code && code.length === 8 ? `${code.slice(0, 4)}-${code.slice(4)}` : code;
-    res.json({ success: true, pairingCode: code, formattedCode });
+    res.json({ success: true, pairingCode: code, formattedCode, userId });
   } catch (err: any) {
-    console.error('[WhatsApp Worker] Pairing code generation error:', err.message);
+    console.error(`[WhatsApp Worker (${getUserId(req)})] Pairing code generation error:`, err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// 3. Disconnect / Logout Session
+// 3. Disconnect / Logout Session for specific tenant
 app.post('/logout', verifySecret, async (req, res) => {
   try {
-    await engine.logout(true);
-    res.json({ success: true, message: 'Logged out successfully' });
+    const userId = getUserId(req);
+    const engine = sessionManager.getSession(userId, false);
+    if (engine) {
+      await engine.logout(true);
+    }
+    res.json({ success: true, message: `Logged out successfully for user ${userId}` });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// Restart / Refresh QR code (unconditionally clears unauthenticated/stale session & regenerates fresh QR)
+// Restart / Refresh QR code for specific tenant
 app.post('/restart', verifySecret, async (req, res) => {
   try {
-    console.log('[WhatsApp Worker] /restart requested. Wiping session and restarting fresh QR handshake...');
-    await engine.logout(true);
-    res.json({ success: true, message: 'Wiped session and restarting fresh QR' });
+    const userId = getUserId(req);
+    console.log(`[WhatsApp Worker (${userId})] /restart requested. Wiping session and restarting fresh QR handshake...`);
+    const engine = sessionManager.getSession(userId, false);
+    if (engine) {
+      await engine.logout(true);
+    } else {
+      sessionManager.getSession(userId, true);
+    }
+    res.json({ success: true, message: `Wiped session and restarting fresh QR for ${userId}` });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// 4. Send Direct Message
+// 4. Send Direct Message from specific tenant account
 app.post('/send', verifySecret, async (req, res) => {
   try {
+    const userId = getUserId(req);
+    const engine = sessionManager.getSession(userId, true);
+    if (!engine) {
+      return res.status(500).json({ success: false, error: `Session engine unavailable for user ${userId}` });
+    }
+
     const { to, text, mediaBase64, mediaMimeType, fileName, isImage, sendTextSeparately, options } = req.body;
     if (!to) {
       return res.status(400).json({ error: 'Recipient phone number (to) is required' });
@@ -131,36 +195,60 @@ app.post('/send', verifySecret, async (req, res) => {
   }
 });
 
-// 5. Campaign Engine State
-let activeCampaign = {
-  isRunning: false,
-  isPaused: false,
-  total: 0,
-  currentIndex: 0,
-  sentCount: 0,
-  failedCount: 0,
-  logs: [] as any[]
-};
+// 5. Multi-Tenant Campaign Engine State
+interface CampaignState {
+  isRunning: boolean;
+  isPaused: boolean;
+  total: number;
+  currentIndex: number;
+  sentCount: number;
+  failedCount: number;
+  logs: any[];
+}
 
-// Start Background Campaign
+const activeCampaigns = new Map<string, CampaignState>();
+
+function getOrCreateCampaign(userId: string): CampaignState {
+  let campaign = activeCampaigns.get(userId);
+  if (!campaign) {
+    campaign = {
+      isRunning: false,
+      isPaused: false,
+      total: 0,
+      currentIndex: 0,
+      sentCount: 0,
+      failedCount: 0,
+      logs: []
+    };
+    activeCampaigns.set(userId, campaign);
+  }
+  return campaign;
+}
+
+// Start Background Campaign for specific tenant
 app.post('/campaign/start', verifySecret, async (req, res) => {
+  const userId = getUserId(req);
+  const engine = sessionManager.getSession(userId, true);
+  if (!engine) {
+    return res.status(500).json({ error: `Session unavailable for user ${userId}` });
+  }
+
   const { contacts, template, delaySeconds = 3, mediaBase64, mediaMimeType, fileName, isImage, sendTextSeparately } = req.body;
 
   if (!Array.isArray(contacts) || contacts.length === 0) {
     return res.status(400).json({ error: 'Valid contacts array required' });
   }
 
-  activeCampaign = {
-    isRunning: true,
-    isPaused: false,
-    total: contacts.length,
-    currentIndex: 0,
-    sentCount: 0,
-    failedCount: 0,
-    logs: []
-  };
+  const campaign = getOrCreateCampaign(userId);
+  campaign.isRunning = true;
+  campaign.isPaused = false;
+  campaign.total = contacts.length;
+  campaign.currentIndex = 0;
+  campaign.sentCount = 0;
+  campaign.failedCount = 0;
+  campaign.logs = [];
 
-  // Run asynchronously in background
+  // Run asynchronously in background for this specific user
   (async () => {
     let media;
     if (mediaBase64 && mediaMimeType) {
@@ -173,16 +261,16 @@ app.post('/campaign/start', verifySecret, async (req, res) => {
     }
 
     for (let i = 0; i < contacts.length; i++) {
-      if (!activeCampaign.isRunning) break;
+      if (!campaign.isRunning) break;
 
-      while (activeCampaign.isPaused) {
+      while (campaign.isPaused) {
         await new Promise(r => setTimeout(r, 500));
-        if (!activeCampaign.isRunning) break;
+        if (!campaign.isRunning) break;
       }
 
-      if (!activeCampaign.isRunning) break;
+      if (!campaign.isRunning) break;
 
-      activeCampaign.currentIndex = i;
+      campaign.currentIndex = i;
       const contact = contacts[i];
       const safeName = (contact.name || 'Friend').trim();
       const firstName = safeName.split(' ')[0] || safeName;
@@ -202,12 +290,12 @@ app.post('/campaign/start', verifySecret, async (req, res) => {
       });
 
       if (result.success) {
-        activeCampaign.sentCount++;
+        campaign.sentCount++;
       } else {
-        activeCampaign.failedCount++;
+        campaign.failedCount++;
       }
 
-      activeCampaign.logs.unshift({
+      campaign.logs.unshift({
         id: `log_${Date.now()}_${i}`,
         timestamp: new Date().toLocaleTimeString(),
         contactName: contact.name,
@@ -217,27 +305,30 @@ app.post('/campaign/start', verifySecret, async (req, res) => {
         message: renderedText
       });
 
-      if (activeCampaign.logs.length > 200) activeCampaign.logs.pop();
+      if (campaign.logs.length > 200) campaign.logs.pop();
     }
 
-    activeCampaign.isRunning = false;
+    campaign.isRunning = false;
   })();
 
-  res.json({ success: true, message: 'Campaign started' });
+  res.json({ success: true, message: 'Campaign started', userId });
 });
 
-// Get Campaign Status
+// Get Campaign Status for specific tenant
 app.get('/campaign/status', verifySecret, (req, res) => {
-  res.json(activeCampaign);
+  const userId = getUserId(req);
+  res.json(getOrCreateCampaign(userId));
 });
 
-// Stop Campaign
+// Stop Campaign for specific tenant
 app.post('/campaign/stop', verifySecret, (req, res) => {
-  activeCampaign.isRunning = false;
-  activeCampaign.isPaused = false;
-  res.json({ success: true, message: 'Campaign stopped' });
+  const userId = getUserId(req);
+  const campaign = getOrCreateCampaign(userId);
+  campaign.isRunning = false;
+  campaign.isPaused = false;
+  res.json({ success: true, message: 'Campaign stopped', userId });
 });
 
 app.listen(PORT, () => {
-  console.log(`[WhatsApp Worker] Persistent daemon running on port ${PORT}`);
+  console.log(`[WhatsApp Worker] Multi-tenant persistent daemon running on port ${PORT}`);
 });

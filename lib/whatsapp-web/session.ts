@@ -1,8 +1,44 @@
 import { WhatsAppWebSession, ConnectionStatus, ConnectionMethod } from './types';
 
 const STORAGE_KEY = 'toolnest_whatsapp_web_session_v1';
+const USER_ID_KEY = 'toolnest_wa_user_id';
 
 export class WhatsAppSessionManager {
+  /**
+   * Retrieves or initializes a unique tenant user ID for this browser / profile.
+   * Existing sessions are seamlessly migrated to 'default' so active sessions stay connected.
+   */
+  static getUserId(): string {
+    if (typeof window === 'undefined') return 'default';
+    try {
+      let uid = localStorage.getItem(USER_ID_KEY);
+      if (!uid) {
+        // If this browser already had a saved session or worker URL, keep them on 'default' so their connected session continues seamlessly
+        const existingSession = localStorage.getItem(STORAGE_KEY);
+        const existingWorker = localStorage.getItem('toolnest_wa_worker_url');
+        if (existingSession || existingWorker) {
+          uid = 'default';
+        } else {
+          uid = 'usr_' + Math.random().toString(36).substring(2, 8) + Date.now().toString(36);
+        }
+        localStorage.setItem(USER_ID_KEY, uid);
+      }
+      // Ensure cookie is synced
+      document.cookie = `toolnest_wa_user_id=${encodeURIComponent(uid)}; path=/; max-age=31536000; SameSite=Lax`;
+      return uid;
+    } catch {
+      return 'default';
+    }
+  }
+
+  static setUserId(uid: string): void {
+    if (typeof window === 'undefined') return;
+    try {
+      const clean = uid.trim() || 'default';
+      localStorage.setItem(USER_ID_KEY, clean);
+      document.cookie = `toolnest_wa_user_id=${encodeURIComponent(clean)}; path=/; max-age=31536000; SameSite=Lax`;
+    } catch {}
+  }
   /**
    * Loads session from localStorage to ensure 100% persistence on Vercel or any reload
    */

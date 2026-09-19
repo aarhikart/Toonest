@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getWhatsAppServiceUrl, getWhatsAppServiceSecret, getWorkerHeaders } from '@/lib/whatsapp-web/config';
+import { getWhatsAppServiceUrl, getWhatsAppServiceSecret, getWorkerHeaders, getWorkerUserId } from '@/lib/whatsapp-web/config';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -7,6 +7,7 @@ export const maxDuration = 60;
 export async function POST(req: NextRequest) {
   const serviceUrl = getWhatsAppServiceUrl(req);
   const serviceSecret = getWhatsAppServiceSecret();
+  const userId = getWorkerUserId(req);
 
   try {
     const body = await req.json();
@@ -23,8 +24,8 @@ export async function POST(req: NextRequest) {
 
     const res = await fetch(`${serviceUrl}/send`, {
       method: 'POST',
-      headers: getWorkerHeaders(serviceSecret),
-      body: JSON.stringify(body),
+      headers: getWorkerHeaders(serviceSecret, userId),
+      body: JSON.stringify({ ...body, userId }),
       signal: controller.signal
     });
     clearTimeout(timeout);

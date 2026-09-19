@@ -60,7 +60,9 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
   }, []);
 
   const getHeaders = () => {
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = {
+      'x-user-id': WhatsAppSessionManager.getUserId()
+    };
     if (workerUrl && workerUrl.trim()) {
       headers['x-worker-url'] = workerUrl.trim();
     }
@@ -75,7 +77,9 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
     }
     try {
       const targetWorker = overrideUrl !== undefined ? overrideUrl : workerUrl;
-      const headers: Record<string, string> = {};
+      const headers: Record<string, string> = {
+        'x-user-id': WhatsAppSessionManager.getUserId()
+      };
       if (targetWorker && targetWorker.trim()) {
         headers['x-worker-url'] = targetWorker.trim();
       }
@@ -222,9 +226,12 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
                   ACTIVE &amp; PERSISTENT
                 </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300">
+                  Session: {WhatsAppSessionManager.getUserId()}
+                </span>
               </div>
               <p className="text-xs text-zinc-500 mt-0.5">
-                Connected Number: <span className="font-mono font-semibold text-zinc-800 dark:text-zinc-200">{session.phoneNumber}</span> &bull; Authenticated session active
+                Connected Number: <span className="font-mono font-semibold text-zinc-800 dark:text-zinc-200">{session.phoneNumber}</span> &bull; Isolated multi-tenant session active
               </p>
             </div>
           </div>
@@ -316,12 +323,17 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
                 Persistent WhatsApp Worker Gateway (Vercel &amp; Hosting Setup)
               </h4>
             </div>
-            <span className="text-[11px] text-zinc-500 font-mono">
-              Current: {workerUrl || 'Default (Local Port 5001)'}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-zinc-500 font-mono">
+                Gateway: {workerUrl || 'Default (Port 5001)'}
+              </span>
+              <span className="text-[10px] px-2 py-0.5 rounded bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 font-mono font-semibold">
+                Tenant: {WhatsAppSessionManager.getUserId()}
+              </span>
+            </div>
           </div>
           <p className="text-[11px] text-zinc-600 dark:text-zinc-400 leading-relaxed">
-            When hosted on <strong>Vercel (toonest.vercel.app)</strong>, serverless functions cannot hold a 24/7 WebSocket. Point this to your persistent worker running on Hostinger VPS, Render, Railway, or an ngrok/tunnel URL (e.g. <code className="bg-white dark:bg-zinc-800 px-1 py-0.5 rounded">https://xxxx.ngrok-free.app</code> or <code className="bg-white dark:bg-zinc-800 px-1 py-0.5 rounded">http://your-vps:5001</code>).
+            <strong>Multi-Tenant Gateway Active:</strong> Multiple users can share the same Worker Gateway URL without session conflicts. Each user has a completely isolated WhatsApp session, QR code, and campaign queue.
           </p>
           <div className="flex gap-2">
             <input

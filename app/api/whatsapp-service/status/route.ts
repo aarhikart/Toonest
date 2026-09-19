@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
-import { getWhatsAppServiceUrl, getWhatsAppServiceSecret, getWorkerHeaders } from '@/lib/whatsapp-web/config';
+import { getWhatsAppServiceUrl, getWhatsAppServiceSecret, getWorkerHeaders, getWorkerUserId } from '@/lib/whatsapp-web/config';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -33,6 +33,7 @@ function ensureWorkerRunning() {
 export async function GET(req: NextRequest) {
   const serviceUrl = getWhatsAppServiceUrl(req);
   const serviceSecret = getWhatsAppServiceSecret();
+  const userId = getWorkerUserId(req);
   const { searchParams } = new URL(req.url);
   const shouldRestart = searchParams.get('restart') === 'true';
 
@@ -46,7 +47,7 @@ export async function GET(req: NextRequest) {
     if (shouldRestart) {
       await fetch(`${serviceUrl}/restart`, {
         method: 'POST',
-        headers: getWorkerHeaders(serviceSecret)
+        headers: getWorkerHeaders(serviceSecret, userId)
       }).catch(() => {});
     }
 
@@ -54,7 +55,7 @@ export async function GET(req: NextRequest) {
     const timeout = setTimeout(() => controller.abort(), 8000); // 8s timeout for cloud/tunnel workers
 
     const res = await fetch(`${serviceUrl}/status`, {
-      headers: getWorkerHeaders(serviceSecret),
+      headers: getWorkerHeaders(serviceSecret, userId),
       signal: controller.signal,
       cache: 'no-store'
     });

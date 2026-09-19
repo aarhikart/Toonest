@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.WhatsAppSessionEngine = void 0;
+exports.MultiSessionManager = exports.WhatsAppSessionEngine = void 0;
 exports.normalizePhoneNumber = normalizePhoneNumber;
 const whatsapp_web_js_1 = require("whatsapp-web.js");
 const qrcode_1 = __importDefault(require("qrcode"));
@@ -23,6 +23,7 @@ function normalizePhoneNumber(phone) {
     return cleaned;
 }
 class WhatsAppSessionEngine {
+    userId;
     client = null;
     sessionDir;
     state = 'DISCONNECTED';
@@ -34,12 +35,20 @@ class WhatsAppSessionEngine {
     isExplicitLogout = false;
     reconnectTimer = null;
     pairingCodeWaiter = null;
-    constructor(sessionDir = './sessions') {
+    constructor(sessionDir = './sessions', userId = 'default') {
         this.sessionDir = sessionDir;
+        this.userId = (userId || 'default').trim();
         try {
             fs_1.default.mkdirSync(this.sessionDir, { recursive: true });
         }
         catch (_) { }
+    }
+    getAuthPath() {
+        // Backwards compatible: 'default' uses existing './sessions/wwebjs_auth'
+        if (this.userId === 'default') {
+            return path_1.default.resolve(this.sessionDir, 'wwebjs_auth');
+        }
+        return path_1.default.resolve(this.sessionDir, `wwebjs_auth_${this.userId}`);
     }
     getPuppeteerOptions() {
         const baseArgs = [
@@ -68,18 +77,18 @@ class WhatsAppSessionEngine {
     }
     async initialize(pairPhoneNumber) {
         if (this.isConnecting) {
-            console.log('[WhatsApp Worker] WhatsApp Web client is already initializing...');
+            console.log(`[WhatsApp Worker (${this.userId})] WhatsApp Web client is already initializing...`);
             return;
         }
         if (this.client && this.state === 'CONNECTED') {
-            console.log('[WhatsApp Worker] WhatsApp Web client is already connected.');
+            console.log(`[WhatsApp Worker (${this.userId})] WhatsApp Web client is already connected.`);
             return;
         }
         this.isConnecting = true;
         this.isExplicitLogout = false;
         this.state = 'CONNECTING';
         try {
-            const authPath = path_1.default.resolve(this.sessionDir, 'wwebjs_auth');
+            const authPath = this.getAuthPath();
             fs_1.default.mkdirSync(authPath, { recursive: true });
             if (this.client) {
                 try {
@@ -88,7 +97,7 @@ class WhatsAppSessionEngine {
                 catch (_) { }
                 this.client = null;
             }
-            console.log('[WhatsApp Worker] Launching WhatsApp Web browser engine (Chromium)...');
+            console.log(`[WhatsApp Worker (${this.userId})] Launching WhatsApp Web browser engine (Chromium)...`);
             const client = new whatsapp_web_js_1.Client({
                 authStrategy: new whatsapp_web_js_1.LocalAuth({
                     dataPath: authPath
@@ -273,15 +282,15 @@ class WhatsAppSessionEngine {
             this.client = null;
         }
         if (clearCredentials) {
-            const authPath = path_1.default.resolve(this.sessionDir, 'wwebjs_auth');
+            const authPath = this.getAuthPath();
             try {
                 if (fs_1.default.existsSync(authPath)) {
                     fs_1.default.rmSync(authPath, { recursive: true, force: true });
-                    console.log('[WhatsApp Worker] Cleared session files from', authPath);
+                    console.log(`[WhatsApp Worker (${this.userId})] Cleared session files from`, authPath);
                 }
             }
             catch (err) {
-                console.warn('[WhatsApp Worker] Failed to clear session files:', err.message);
+                console.warn(`[WhatsApp Worker (${this.userId})] Failed to clear session files:`, err.message);
             }
         }
         this.isExplicitLogout = false;
@@ -414,8 +423,28 @@ class WhatsAppSessionEngine {
             pairingCode: this.pairingCode,
             user: this.user,
             lastConnectedAt: this.lastConnectedAt,
-            sessionDir: this.sessionDir
+            sessionDir: this.sessionDir,
+            userId: this.userId
         };
+    }
+    async destroy() {
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+        }
+        if (this.pairingCodeWaiter) {
+            clearTimeout(this.pairingCodeWaiter.timeout);
+            this.pairingCodeWaiter.reject(new Error('Session destroyed.'));
+            this.pairingCodeWaiter = null;
+        }
+        if (this.client) {
+            try {
+                await this.client.destroy();
+            }
+            catch (_) { }
+            this.client = null;
+        }
+        this.state = 'DISCONNECTED';
     }
     scheduleReconnect(delayMs) {
         if (this.reconnectTimer)
@@ -423,9 +452,9 @@ class WhatsAppSessionEngine {
         this.reconnectTimer = setTimeout(() => {
             this.reconnectTimer = null;
             if (this.state !== 'CONNECTED' && !this.isExplicitLogout) {
-                console.log('[WhatsApp Worker] Attempting reconnection...');
+                console.log(`[WhatsApp Worker (${this.userId})] Attempting reconnection...`);
                 this.initialize().catch((err) => {
-                    console.error('[WhatsApp Worker] Reconnect error:', err.message);
+                    console.error(`[WhatsApp Worker (${this.userId})] Reconnect error:`, err.message);
                 });
             }
         }, delayMs);
@@ -435,3 +464,75 @@ class WhatsAppSessionEngine {
     }
 }
 exports.WhatsAppSessionEngine = WhatsAppSessionEngine;
+/**
+ * Multi-Session Manager: Coordinates isolated WhatsApp sessions keyed by userId.
+ * Each user gets their own sandboxed Chromium context & session directory.
+ */
+class MultiSessionManager {
+    sessions = new Map();
+    sessionDir;
+    constructor(sessionDir = './sessions') {
+        this.sessionDir = sessionDir;
+        try {
+            fs_1.default.mkdirSync(this.sessionDir, { recursive: true });
+        }
+        catch (_) { }
+    }
+    getSession(userId = 'default', autoCreate = true) {
+        const cleanId = (userId || 'default').trim();
+        let engine = this.sessions.get(cleanId);
+        if (!engine && autoCreate) {
+            engine = new WhatsAppSessionEngine(this.sessionDir, cleanId);
+            this.sessions.set(cleanId, engine);
+            engine.initialize().catch((err) => {
+                console.error(`[MultiSessionManager] Auto-initialization error for user ${cleanId}:`, err.message);
+            });
+        }
+        return engine || null;
+    }
+    async removeSession(userId, clearCredentials = false) {
+        const cleanId = (userId || 'default').trim();
+        const engine = this.sessions.get(cleanId);
+        if (engine) {
+            await engine.logout(clearCredentials);
+            await engine.destroy();
+            this.sessions.delete(cleanId);
+        }
+    }
+    listSessions() {
+        const results = [];
+        for (const [uid, engine] of this.sessions.entries()) {
+            results.push({
+                userId: uid,
+                status: engine.getStatus()
+            });
+        }
+        return results;
+    }
+    async autoRestoreSessions() {
+        try {
+            if (!fs_1.default.existsSync(this.sessionDir))
+                return;
+            const entries = fs_1.default.readdirSync(this.sessionDir, { withFileTypes: true });
+            for (const entry of entries) {
+                if (!entry.isDirectory())
+                    continue;
+                if (entry.name === 'wwebjs_auth') {
+                    console.log('[MultiSessionManager] Found existing default session on disk. Restoring...');
+                    this.getSession('default', true);
+                }
+                else if (entry.name.startsWith('wwebjs_auth_')) {
+                    const uid = entry.name.replace('wwebjs_auth_', '').trim();
+                    if (uid) {
+                        console.log(`[MultiSessionManager] Found existing session for user "${uid}" on disk. Restoring...`);
+                        this.getSession(uid, true);
+                    }
+                }
+            }
+        }
+        catch (err) {
+            console.warn('[MultiSessionManager] Error auto-restoring sessions from disk:', err.message);
+        }
+    }
+}
+exports.MultiSessionManager = MultiSessionManager;

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { WebContact, WhatsAppWebSession } from '@/lib/whatsapp-web/types';
 import { WhatsAppSenderEngine } from '@/lib/whatsapp-web/sender';
+import { WhatsAppSessionManager } from '@/lib/whatsapp-web/session';
 import { MediaAttachment } from './WhatsAppMessageComposer';
 
 interface WhatsAppAutoSenderProps {
@@ -154,7 +155,8 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
 
           const savedWorkerUrl = typeof window !== 'undefined' ? localStorage.getItem('toolnest_wa_worker_url') || '' : '';
           const requestHeaders: Record<string, string> = {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'x-user-id': WhatsAppSessionManager.getUserId()
           };
           if (savedWorkerUrl) {
             requestHeaders['x-worker-url'] = savedWorkerUrl;
