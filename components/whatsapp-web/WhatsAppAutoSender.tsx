@@ -224,6 +224,26 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
     setIsPaused(false);
     isRunningRef.current = false;
     isPausedRef.current = false;
+
+    // Automatically record campaign run to MongoDB
+    try {
+      const finalSent = currentList.filter(c => c.status === 'SENT').length;
+      const finalFailed = currentList.filter(c => c.status === 'FAILED').length;
+      if (finalSent > 0 || finalFailed > 0) {
+        fetch('/api/campaigns/record', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            campaignName: `Campaign (${new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })})`,
+            template: messageTemplate,
+            totalContacts: currentList.length,
+            successfulMessages: finalSent,
+            failedMessages: finalFailed,
+            status: 'completed'
+          })
+        }).catch(() => {});
+      }
+    } catch (_) {}
   };
 
   const handlePauseResume = () => {
