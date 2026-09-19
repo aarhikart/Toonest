@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { MultiSessionManager } from './whatsapp';
+import { tunnelManager } from './tunnel';
 
 dotenv.config();
 
@@ -81,6 +82,43 @@ app.get('/sessions', verifySecret, (req, res) => {
     sessions,
     memoryUsage: process.memoryUsage(),
     uptime: process.uptime()
+  });
+});
+
+// Tunnel Management Endpoints
+app.get('/tunnel', (req, res) => {
+  res.json({
+    success: true,
+    ...tunnelManager.getStatus()
+  });
+});
+
+app.post('/tunnel/generate', async (req, res) => {
+  try {
+    const force = req.body?.force === true;
+    const url = await tunnelManager.startTunnel(Number(PORT), force);
+    const status = tunnelManager.getStatus();
+    res.json({
+      success: true,
+      url,
+      isRunning: status.isRunning,
+      status: status.status,
+      error: status.error
+    });
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to generate tunnel'
+    });
+  }
+});
+
+app.post('/tunnel/stop', (req, res) => {
+  tunnelManager.stopTunnel();
+  res.json({
+    success: true,
+    message: 'Tunnel stopped',
+    ...tunnelManager.getStatus()
   });
 });
 

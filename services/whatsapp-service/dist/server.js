@@ -7,6 +7,7 @@ const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const whatsapp_1 = require("./whatsapp");
+const tunnel_1 = require("./tunnel");
 dotenv_1.default.config();
 // Production Process Resilience: Prevent transient socket closes or unhandled promises from crashing the worker daemon
 process.on('unhandledRejection', (reason) => {
@@ -77,6 +78,41 @@ app.get('/sessions', verifySecret, (req, res) => {
         sessions,
         memoryUsage: process.memoryUsage(),
         uptime: process.uptime()
+    });
+});
+// Tunnel Management Endpoints
+app.get('/tunnel', (req, res) => {
+    res.json({
+        success: true,
+        ...tunnel_1.tunnelManager.getStatus()
+    });
+});
+app.post('/tunnel/generate', async (req, res) => {
+    try {
+        const force = req.body?.force === true;
+        const url = await tunnel_1.tunnelManager.startTunnel(Number(PORT), force);
+        const status = tunnel_1.tunnelManager.getStatus();
+        res.json({
+            success: true,
+            url,
+            isRunning: status.isRunning,
+            status: status.status,
+            error: status.error
+        });
+    }
+    catch (err) {
+        res.status(500).json({
+            success: false,
+            error: err.message || 'Failed to generate tunnel'
+        });
+    }
+});
+app.post('/tunnel/stop', (req, res) => {
+    tunnel_1.tunnelManager.stopTunnel();
+    res.json({
+        success: true,
+        message: 'Tunnel stopped',
+        ...tunnel_1.tunnelManager.getStatus()
     });
 });
 // 1. Get Connection Status (State, QR code data url, user info) for specific tenant

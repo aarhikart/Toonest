@@ -29,7 +29,9 @@ import {
   Wifi,
   WifiOff,
   Loader2,
-  Check
+  Check,
+  Zap,
+  Copy
 } from 'lucide-react';
 
 interface ManagedUser {
@@ -81,6 +83,8 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
   const [isGatewayOnline, setIsGatewayOnline] = useState<boolean>(false);
   const [gatewayPingMs, setGatewayPingMs] = useState<number | null>(null);
   const [isSavingGateway, setIsSavingGateway] = useState<boolean>(false);
+  const [isGeneratingTunnel, setIsGeneratingTunnel] = useState<boolean>(false);
+  const [copiedTunnelUrl, setCopiedTunnelUrl] = useState<boolean>(false);
   const [gatewayStatusMessage, setGatewayStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Create User Modal State
@@ -166,6 +170,69 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
     } catch (err) {
       alert('Error resetting gateway.');
     }
+  };
+
+  const handleGenerateTunnel = async () => {
+    setIsGeneratingTunnel(true);
+    setGatewayStatusMessage(null);
+    try {
+      // Step 1: Request tunnel generation via Admin API route
+      let generatedUrl = '';
+      try {
+        const res = await fetch('/api/admin/gateway/tunnel', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ force: false, autoSave: false })
+        });
+        const data = await res.json();
+        if (data.success && data.url) {
+          generatedUrl = data.url;
+        }
+      } catch {}
+
+      // Step 2: If API route didn't succeed (e.g. running on cloud without local network proxy), try direct worker call
+      if (!generatedUrl) {
+        try {
+          const directRes = await fetch('http://localhost:5001/tunnel/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ force: false })
+          });
+          const directData = await directRes.json();
+          if (directData.success && directData.url) {
+            generatedUrl = directData.url;
+          }
+        } catch {}
+      }
+
+      if (generatedUrl) {
+        setGatewayInput(generatedUrl);
+        setGatewayStatusMessage({
+          type: 'success',
+          text: `⚡ Live Cloudflare Tunnel Generated: ${generatedUrl}. Click "Test & Set Gateway URL" to activate it for all users!`
+        });
+      } else {
+        setGatewayStatusMessage({
+          type: 'error',
+          text: 'Unable to start Cloudflare tunnel. Please ensure `npm run whatsapp:worker` is running locally on your computer.'
+        });
+      }
+    } catch (err: any) {
+      setGatewayStatusMessage({
+        type: 'error',
+        text: err.message || 'Error communicating with worker tunnel service.'
+      });
+    } finally {
+      setIsGeneratingTunnel(false);
+    }
+  };
+
+  const handleCopyGatewayUrl = (urlToCopy?: string) => {
+    const text = urlToCopy || gatewayInput || gatewayUrl;
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    setCopiedTunnelUrl(true);
+    setTimeout(() => setCopiedTunnelUrl(false), 2500);
   };
 
   const fetchUsers = async () => {
@@ -488,6 +555,54 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
           </div>
         )}
 
+        {/* Quick Actions: Auto-Generate Cloudflare Tunnel & Copy */}
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <button
+            type="button"
+            onClick={handleGenerateTunnel}
+            disabled={isGeneratingTunnel}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/60 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-xs font-semibold shadow-2xs transition cursor-pointer disabled:opacity-60"
+            title="Auto-generate or refresh a live Cloudflare Tunnel from your local computer"
+          >
+            {isGeneratingTunnel ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-600" />
+                <span>Generating Cloudflare Tunnel...</span>
+              </>
+            ) : (
+              <>
+                <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                <span>⚡ Auto-Generate Tunnel URL</span>
+              </>
+            )}
+          </button>
+
+          {gatewayInput && (
+            <button
+              type="button"
+              onClick={() => handleCopyGatewayUrl(gatewayInput)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 text-xs font-medium transition cursor-pointer"
+              title="Copy URL to clipboard"
+            >
+              {copiedTunnelUrl ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-emerald-500" />
+                  <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Copied to Clipboard!</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3.5 h-3.5 text-zinc-400" />
+                  <span>Copy URL</span>
+                </>
+              )}
+            </button>
+          )}
+
+          <span className="text-[11px] text-zinc-400 dark:text-zinc-500 ml-auto hidden sm:inline">
+            Requires local worker running on your PC
+          </span>
+        </div>
+
         <form onSubmit={handleSaveGateway} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
           <div className="relative flex-1">
             <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-400">
@@ -523,9 +638,18 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
         </form>
 
         {gatewayUrl && (
-          <div className="flex items-center gap-2 text-[11px] text-zinc-500 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-800/50 p-2.5 rounded-xl border border-zinc-200/60 dark:border-zinc-700/60">
+          <div className="flex items-center flex-wrap gap-2 text-[11px] text-zinc-500 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-800/50 p-2.5 rounded-xl border border-zinc-200/60 dark:border-zinc-700/60">
             <span className="font-semibold text-zinc-700 dark:text-zinc-300">Active Global Gateway:</span>
             <code className="font-mono text-[#5722AF] dark:text-purple-300">{gatewayUrl}</code>
+            <button
+              type="button"
+              onClick={() => handleCopyGatewayUrl(gatewayUrl)}
+              className="inline-flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 cursor-pointer ml-1"
+              title="Copy Active Gateway URL"
+            >
+              <Copy className="w-3 h-3" />
+              <span>Copy</span>
+            </button>
             <a
               href={`${gatewayUrl}/status`}
               target="_blank"
