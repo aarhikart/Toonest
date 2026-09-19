@@ -32,15 +32,22 @@ export class WhatsAppSessionManager {
       document.cookie = `toolnest_wa_user_id=${encodeURIComponent(clean)}; path=/; max-age=31536000; SameSite=Lax`;
     } catch {}
   }
+  static getStorageKey(userId?: string): string {
+    const uid = (userId && userId.trim() !== 'default') ? userId.trim().toLowerCase() : WhatsAppSessionManager.getUserId().toLowerCase();
+    return (uid && uid !== 'default') ? `${STORAGE_KEY}_${uid}` : STORAGE_KEY;
+  }
+
   /**
-   * Loads session from localStorage to ensure 100% persistence on Vercel or any reload
+   * Loads session from localStorage to ensure 100% persistence on Vercel or any reload.
+   * Can be scoped to a specific tenant userId.
    */
-  static getSession(): WhatsAppWebSession {
+  static getSession(userId?: string): WhatsAppWebSession {
     if (typeof window === 'undefined') {
       return { connected: false, method: 'QR' };
     }
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
+      const key = WhatsAppSessionManager.getStorageKey(userId);
+      const stored = localStorage.getItem(key);
       if (stored) {
         return JSON.parse(stored);
       }
@@ -54,19 +61,24 @@ export class WhatsAppSessionManager {
     };
   }
 
-  static saveSession(session: WhatsAppWebSession): void {
+  static saveSession(session: WhatsAppWebSession, userId?: string): void {
     if (typeof window === 'undefined') return;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+      const key = WhatsAppSessionManager.getStorageKey(userId);
+      localStorage.setItem(key, JSON.stringify(session));
     } catch (e) {
       console.error('Failed to save session', e);
     }
   }
 
-  static clearSession(): void {
+  static clearSession(userId?: string): void {
     if (typeof window === 'undefined') return;
     try {
-      localStorage.removeItem(STORAGE_KEY);
+      const key = WhatsAppSessionManager.getStorageKey(userId);
+      localStorage.removeItem(key);
+      if (!userId || userId === 'default') {
+        localStorage.removeItem(STORAGE_KEY);
+      }
     } catch (e) {
       console.error('Failed to clear session', e);
     }

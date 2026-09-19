@@ -29,6 +29,7 @@ interface WhatsAppAutoSenderProps {
   delaySeconds: number;
   media: MediaAttachment | null;
   onOpenGuide?: () => void;
+  userId?: string;
 }
 
 interface LogItem {
@@ -50,8 +51,10 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
   messageTemplate,
   delaySeconds,
   media,
-  onOpenGuide
+  onOpenGuide,
+  userId
 }) => {
+  const effectiveUserId = (userId && userId.trim() !== 'default' ? userId.trim() : WhatsAppSessionManager.getUserId()).toLowerCase();
   const [isRunning, setIsRunning] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -160,7 +163,7 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
           const savedWorkerUrl = typeof window !== 'undefined' ? localStorage.getItem('toolnest_wa_worker_url') || '' : '';
           const requestHeaders: Record<string, string> = {
             'Content-Type': 'application/json',
-            'x-user-id': WhatsAppSessionManager.getUserId()
+            'x-user-id': effectiveUserId
           };
           if (savedWorkerUrl) {
             requestHeaders['x-worker-url'] = savedWorkerUrl;
@@ -186,9 +189,9 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
                   headers: {
                     'Content-Type': 'application/json',
                     'x-service-key': 'toolnest_secure_service_token_2026',
-                    'x-user-id': WhatsAppSessionManager.getUserId()
+                    'x-user-id': effectiveUserId
                   },
-                  body: JSON.stringify({ ...payload, userId: WhatsAppSessionManager.getUserId() })
+                  body: JSON.stringify({ ...payload, userId: effectiveUserId })
                 });
                 if (directRes.ok) {
                   res = directRes;

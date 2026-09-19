@@ -29,9 +29,10 @@ interface WhatsAppWebConnectProps {
   session: WhatsAppWebSession;
   onSessionChange: (session: WhatsAppWebSession) => void;
   onOpenGuide?: () => void;
+  userId?: string;
 }
 
-export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session, onSessionChange, onOpenGuide }) => {
+export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session, onSessionChange, onOpenGuide, userId }) => {
   const [activeTab, setActiveTab] = useState<'QR' | 'PAIRING'>('QR');
   const [phoneNumberInput, setPhoneNumberInput] = useState('');
   const [realQrUrl, setRealQrUrl] = useState<string | null>(null);
@@ -50,6 +51,8 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
   const [resolvedServiceUrl, setResolvedServiceUrl] = useState<string>('');
   const [showConfig, setShowConfig] = useState<boolean>(false);
 
+  const effectiveUserId = (userId && userId.trim() !== 'default' ? userId.trim() : WhatsAppSessionManager.getUserId()).toLowerCase();
+
   // Load saved worker URL from localStorage on mount
   useEffect(() => {
     try {
@@ -64,7 +67,7 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
 
   const getHeaders = () => {
     const headers: Record<string, string> = {
-      'x-user-id': WhatsAppSessionManager.getUserId()
+      'x-user-id': effectiveUserId
     };
     if (workerUrl && workerUrl.trim()) {
       headers['x-worker-url'] = workerUrl.trim();
@@ -81,7 +84,7 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
     try {
       const targetWorker = overrideUrl !== undefined ? overrideUrl : workerUrl;
       const headers: Record<string, string> = {
-        'x-user-id': WhatsAppSessionManager.getUserId()
+        'x-user-id': effectiveUserId
       };
       if (targetWorker && targetWorker.trim()) {
         headers['x-worker-url'] = targetWorker.trim();
@@ -108,21 +111,31 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
         setRealPairingCode(data.pairingCode);
       }
 
-      // Detect authenticated session
+      // Detect authenticated session for this specific tenant
       if (data.isConnected && data.user) {
-        if (data.userId) {
-          WhatsAppSessionManager.setUserId(data.userId);
-        }
         const updatedSession: WhatsAppWebSession = {
           connected: true,
           phoneNumber: data.user.phoneNumber || data.user.id || 'Connected Account',
           connectedAt: data.lastConnectedAt || new Date().toISOString(),
           method: activeTab === 'QR' ? 'QR' : 'PAIRING_CODE',
           deviceId: 'Multi-Device-Web',
-          profileName: data.user.name || 'WhatsApp Web Device'
+          profileName: data.user.name || 'WhatsApp Web Device',
+          workerOnline: true
         };
-        WhatsAppSessionManager.saveSession(updatedSession);
+        WhatsAppSessionManager.saveSession(updatedSession, effectiveUserId);
         onSessionChange(updatedSession);
+      } else {
+        // If not connected for this user, ensure UI reflects not connected
+        if (session.connected) {
+          const disconnectedSession: WhatsAppWebSession = {
+            ...session,
+            connected: false,
+            phoneNumber: undefined,
+            connectedAt: undefined
+          };
+          WhatsAppSessionManager.saveSession(disconnectedSession, effectiveUserId);
+          onSessionChange(disconnectedSession);
+        }
       }
     } catch (err) {
       console.error('Status fetch error', err);
@@ -142,7 +155,7 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
       }
     }, 1500);
     return () => clearInterval(interval);
-  }, [session.connected, workerUrl]);
+  }, [session.connected, workerUrl, effectiveUserId]);
 
   // Track loading time to offer direct help / reload
   useEffect(() => {
@@ -206,7 +219,7 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
         headers: getHeaders()
       });
     } catch {}
-    WhatsAppSessionManager.clearSession();
+    WhatsAppSessionManager.clearSession(effectiveUserId);
     onSessionChange({ connected: false, method: 'QR' });
     setRealPairingCode(null);
     setRealQrUrl(null);
@@ -239,7 +252,7 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
                   ACTIVE &amp; PERSISTENT
                 </span>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300">
-                  Session: {WhatsAppSessionManager.getUserId()}
+                  User: {effectiveUserId}
                 </span>
               </div>
               <p className="text-xs text-zinc-500 mt-0.5">
@@ -355,7 +368,7 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
                 Gateway: {workerUrl || 'Default (Port 5001)'}
               </span>
               <span className="text-[10px] px-2 py-0.5 rounded bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 font-mono font-semibold">
-                Tenant: {WhatsAppSessionManager.getUserId()}
+                User: {effectiveUserId}
               </span>
             </div>
           </div>

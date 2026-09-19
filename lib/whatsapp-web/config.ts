@@ -70,17 +70,37 @@ export function getWhatsAppServiceSecret(): string {
 export function getWorkerUserId(req?: NextRequest): string {
   if (req) {
     const customHeader = req.headers.get('x-user-id');
-    if (customHeader && customHeader.trim()) {
-      return customHeader.trim();
+    if (customHeader && customHeader.trim() && customHeader.trim() !== 'default') {
+      return customHeader.trim().toLowerCase();
     }
     const cookieUser = req.cookies.get('toolnest_wa_user_id')?.value;
-    if (cookieUser && cookieUser.trim()) {
-      return cookieUser.trim();
+    if (cookieUser && cookieUser.trim() && cookieUser.trim() !== 'default') {
+      return cookieUser.trim().toLowerCase();
     }
+
+    // Authenticated session fallback: extract username from decrypted auth token
+    const token = req.cookies.get('toolnest_auth_token')?.value;
+    if (token) {
+      try {
+        const { decryptToken } = require('@/lib/auth/session');
+        const payload = decryptToken(token);
+        if (payload && payload.username && typeof payload.username === 'string') {
+          return payload.username.trim().toLowerCase();
+        }
+      } catch (_) {}
+    }
+
     const { searchParams } = new URL(req.url);
     const queryUser = searchParams.get('userId');
-    if (queryUser && queryUser.trim()) {
-      return queryUser.trim();
+    if (queryUser && queryUser.trim() && queryUser.trim() !== 'default') {
+      return queryUser.trim().toLowerCase();
+    }
+
+    if (customHeader && customHeader.trim()) {
+      return customHeader.trim().toLowerCase();
+    }
+    if (cookieUser && cookieUser.trim()) {
+      return cookieUser.trim().toLowerCase();
     }
   }
   return 'default';

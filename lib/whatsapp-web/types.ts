@@ -8,6 +8,7 @@ export interface WhatsAppWebSession {
   method: ConnectionMethod;
   deviceId?: string;
   profileName?: string;
+  workerOnline?: boolean;
 }
 
 export type ContactSendStatus = 'PENDING' | 'SENDING' | 'SENT' | 'FAILED';

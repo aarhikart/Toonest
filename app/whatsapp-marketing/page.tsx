@@ -75,6 +75,27 @@ export default function WhatsAppMarketingPage() {
       const data = await res.json();
       if (data.success && data.user) {
         setCurrentUser(data.user);
+        const username = data.user.username.toLowerCase();
+        WhatsAppSessionManager.setUserId(username);
+        const userSession = WhatsAppSessionManager.getSession(username);
+        setSession(userSession);
+
+        try {
+          const savedContacts = localStorage.getItem(`toolnest_wa_contacts_${username}`);
+          if (savedContacts) {
+            setContacts(JSON.parse(savedContacts));
+          } else {
+            setContacts(WhatsAppSenderEngine.getSampleContacts());
+          }
+
+          const savedTmpl = localStorage.getItem(`toolnest_wa_template_${username}`);
+          if (savedTmpl) {
+            setMessageTemplate(savedTmpl);
+          }
+        } catch {
+          setContacts(WhatsAppSenderEngine.getSampleContacts());
+        }
+
         // If user, keep them in sender studio; if admin, start at admin center
         if (data.user.role === 'admin') {
           setAdminViewMode('admin_center');
@@ -83,9 +104,13 @@ export default function WhatsAppMarketingPage() {
         }
       } else {
         setCurrentUser(null);
+        WhatsAppSessionManager.setUserId('default');
+        setSession({ connected: false, method: 'QR' });
       }
     } catch {
       setCurrentUser(null);
+      WhatsAppSessionManager.setUserId('default');
+      setSession({ connected: false, method: 'QR' });
     } finally {
       setIsAuthLoading(false);
     }
@@ -94,46 +119,36 @@ export default function WhatsAppMarketingPage() {
   // Initialize from persistent storage & auth
   useEffect(() => {
     checkAuth();
-
-    const loadedSession = WhatsAppSessionManager.getSession();
-    setSession(loadedSession);
-
-    try {
-      const savedContacts = localStorage.getItem('toolnest_wa_contacts_v1');
-      if (savedContacts) {
-        setContacts(JSON.parse(savedContacts));
-      } else {
-        setContacts(WhatsAppSenderEngine.getSampleContacts());
-      }
-
-      const savedTmpl = localStorage.getItem('toolnest_wa_template_v1');
-      if (savedTmpl) {
-        setMessageTemplate(savedTmpl);
-      }
-    } catch {
-      setContacts(WhatsAppSenderEngine.getSampleContacts());
-    }
   }, []);
 
   const handleLogout = async () => {
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
     } catch {}
+    const username = currentUser?.username?.toLowerCase();
+    if (username) {
+      WhatsAppSessionManager.clearSession(username);
+    }
+    WhatsAppSessionManager.setUserId('default');
+    document.cookie = 'toolnest_wa_user_id=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT';
     setCurrentUser(null);
+    setSession({ connected: false, method: 'QR' });
     setAdminViewMode('admin_center');
   };
 
   const handleContactsChange = (newContacts: WebContact[]) => {
     setContacts(newContacts);
     try {
-      localStorage.setItem('toolnest_wa_contacts_v1', JSON.stringify(newContacts));
+      const username = currentUser?.username?.toLowerCase() || 'default';
+      localStorage.setItem(`toolnest_wa_contacts_${username}`, JSON.stringify(newContacts));
     } catch {}
   };
 
   const handleMessageChange = (newMsg: string) => {
     setMessageTemplate(newMsg);
     try {
-      localStorage.setItem('toolnest_wa_template_v1', newMsg);
+      const username = currentUser?.username?.toLowerCase() || 'default';
+      localStorage.setItem(`toolnest_wa_template_${username}`, newMsg);
     } catch {}
   };
 
@@ -226,6 +241,25 @@ export default function WhatsAppMarketingPage() {
             <WhatsAppAuthModal
               onLoginSuccess={user => {
                 setCurrentUser(user);
+                const username = user.username.toLowerCase();
+                WhatsAppSessionManager.setUserId(username);
+                const userSession = WhatsAppSessionManager.getSession(username);
+                setSession(userSession);
+
+                try {
+                  const savedContacts = localStorage.getItem(`toolnest_wa_contacts_${username}`);
+                  if (savedContacts) {
+                    setContacts(JSON.parse(savedContacts));
+                  } else {
+                    setContacts(WhatsAppSenderEngine.getSampleContacts());
+                  }
+
+                  const savedTmpl = localStorage.getItem(`toolnest_wa_template_${username}`);
+                  if (savedTmpl) {
+                    setMessageTemplate(savedTmpl);
+                  }
+                } catch {}
+
                 if (user.role === 'admin') {
                   setAdminViewMode('admin_center');
                 } else {
@@ -306,6 +340,7 @@ export default function WhatsAppMarketingPage() {
                 session={session}
                 onSessionChange={setSession}
                 onOpenGuide={() => setActiveGuideStep(1)}
+                userId={currentUser?.username?.toLowerCase()}
               />
             </section>
 
@@ -389,6 +424,7 @@ export default function WhatsAppMarketingPage() {
                 delaySeconds={delaySeconds}
                 media={media}
                 onOpenGuide={() => setActiveGuideStep(4)}
+                userId={currentUser?.username?.toLowerCase()}
               />
             </section>
           </div>

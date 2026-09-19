@@ -82,16 +82,7 @@ app.get('/sessions', verifySecret, (req, res) => {
 // 1. Get Connection Status (State, QR code data url, user info) for specific tenant
 app.get('/status', verifySecret, (req, res) => {
     const userId = getUserId(req);
-    let engine = sessionManager.getSession(userId, true);
-    // Resilient multi-tenant auto-sync:
-    // If the requested tenant has no active connection, but an authenticated WhatsApp session exists on the worker,
-    // report the active connected session so the frontend can immediately sync its userId without falling into an uninitialized limbo!
-    if (!engine || !engine.getStatus().isConnected) {
-        const connectedEngine = sessionManager.getActiveConnectedSession();
-        if (connectedEngine) {
-            engine = connectedEngine;
-        }
-    }
+    const engine = sessionManager.getSession(userId, true);
     if (!engine) {
         return res.json({
             state: 'DISCONNECTED',
@@ -164,18 +155,12 @@ app.post('/restart', verifySecret, async (req, res) => {
 app.post('/send', verifySecret, async (req, res) => {
     try {
         const userId = getUserId(req);
-        let engine = sessionManager.getSession(userId, true);
-        // Resilient delivery fallback: If the requested userId engine is not connected or initialized,
-        // automatically deliver via the active connected WhatsApp account on the worker!
+        const engine = sessionManager.getSession(userId, true);
         if (!engine || !engine.getStatus().isConnected || !engine.getClient()) {
-            const connectedEngine = sessionManager.getActiveConnectedSession();
-            if (connectedEngine) {
-                console.log(`[WhatsApp Worker] Tenant "${userId}" not connected. Delivering message via active session "${connectedEngine.userId}"`);
-                engine = connectedEngine;
-            }
-        }
-        if (!engine || !engine.getClient()) {
-            return res.status(400).json({ success: false, error: 'WhatsApp client is not initialized or connected. Please scan QR code.' });
+            return res.status(400).json({
+                success: false,
+                error: `WhatsApp account for tenant "${userId}" is not connected. Please connect WhatsApp in Step 1.`
+            });
         }
         const { to, text, mediaBase64, mediaMimeType, fileName, isImage, sendTextSeparately, options } = req.body;
         if (!to) {
@@ -223,15 +208,9 @@ function getOrCreateCampaign(userId) {
 // Start Background Campaign for specific tenant
 app.post('/campaign/start', verifySecret, async (req, res) => {
     const userId = getUserId(req);
-    let engine = sessionManager.getSession(userId, true);
+    const engine = sessionManager.getSession(userId, true);
     if (!engine || !engine.getStatus().isConnected || !engine.getClient()) {
-        const connectedEngine = sessionManager.getActiveConnectedSession();
-        if (connectedEngine) {
-            engine = connectedEngine;
-        }
-    }
-    if (!engine || !engine.getClient()) {
-        return res.status(400).json({ error: 'WhatsApp client is not connected. Please scan QR code.' });
+        return res.status(400).json({ error: `WhatsApp client for tenant "${userId}" is not connected. Please scan QR code in Step 1.` });
     }
     const { contacts, template, delaySeconds = 3, mediaBase64, mediaMimeType, fileName, isImage, sendTextSeparately } = req.body;
     if (!Array.isArray(contacts) || contacts.length === 0) {
