@@ -11,6 +11,7 @@ import {
   Globe,
   CheckCircle2,
   Clock,
+  HelpCircle,
   AlertCircle,
   ArrowRightLeft
 } from 'lucide-react';
@@ -21,12 +22,14 @@ interface WhatsAppContactListProps {
   contacts: WebContact[];
   onContactsChange: (contacts: WebContact[]) => void;
   messageTemplate: string;
+  onOpenGuide?: () => void;
 }
 
 export const WhatsAppContactList: React.FC<WhatsAppContactListProps> = ({
   contacts,
   onContactsChange,
-  messageTemplate
+  messageTemplate,
+  onOpenGuide
 }) => {
   const [rawText, setRawText] = useState('');
   const [showPasteBox, setShowPasteBox] = useState(false);
@@ -90,14 +93,26 @@ export const WhatsAppContactList: React.FC<WhatsAppContactListProps> = ({
   };
 
   return (
-    <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-6 shadow-xs space-y-4">
+    <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5 sm:p-6 shadow-xs space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-100 dark:border-zinc-800 pb-4">
         <div>
-          <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-            <Users className="w-4 h-4 text-[#5722AF]" />
-            Audience &amp; Phone Numbers ({contacts.length})
-          </h3>
-          <p className="text-xs text-zinc-500">Paste numbers, upload CSV, or add individually.</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+              <Users className="w-4 h-4 text-[#5722AF]" />
+              Audience Contacts ({contacts.length})
+            </h3>
+            {onOpenGuide && (
+              <button
+                type="button"
+                onClick={onOpenGuide}
+                title="View Step 2 Audience Guide"
+                className="p-1 rounded-lg text-zinc-400 hover:text-[#5722AF] dark:hover:text-purple-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
+              >
+                <HelpCircle className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          <p className="text-xs text-zinc-500 mt-0.5">Import from CSV, bulk paste, or add individually.</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">

@@ -10,7 +10,8 @@ import {
   Paperclip,
   Image as ImageIcon,
   FileText,
-  X
+  X,
+  HelpCircle
 } from 'lucide-react';
 import { WebContact } from '@/lib/whatsapp-web/types';
 import { WhatsAppSenderEngine } from '@/lib/whatsapp-web/sender';
@@ -31,6 +32,7 @@ interface WhatsAppMessageComposerProps {
   media: MediaAttachment | null;
   onMediaChange: (media: MediaAttachment | null) => void;
   previewContact?: WebContact;
+  onOpenGuide?: () => void;
 }
 
 export const WhatsAppMessageComposer: React.FC<WhatsAppMessageComposerProps> = ({
@@ -40,7 +42,8 @@ export const WhatsAppMessageComposer: React.FC<WhatsAppMessageComposerProps> = (
   onDelayChange,
   media,
   onMediaChange,
-  previewContact
+  previewContact,
+  onOpenGuide
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -160,14 +163,26 @@ export const WhatsAppMessageComposer: React.FC<WhatsAppMessageComposerProps> = (
   };
 
   return (
-    <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-6 shadow-xs space-y-5">
+    <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5 sm:p-6 shadow-xs space-y-5">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-100 dark:border-zinc-800 pb-4">
         <div>
-          <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-            <MessageSquare className="w-4 h-4 text-[#5722AF]" />
-            Message Template &amp; Media Attachments
-          </h3>
-          <p className="text-xs text-zinc-500">Text template, image/PDF attachments, and anti-ban delay throttling.</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+              <MessageSquare className="w-4 h-4 text-[#5722AF]" />
+              Message &amp; Media Template
+            </h3>
+            {onOpenGuide && (
+              <button
+                type="button"
+                onClick={onOpenGuide}
+                title="View Step 3 Message & Media Guide"
+                className="p-1 rounded-lg text-zinc-400 hover:text-[#5722AF] dark:hover:text-purple-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
+              >
+                <HelpCircle className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          <p className="text-xs text-zinc-500 mt-0.5">Compose text, attach media, and set safe delay.</p>
         </div>
 
         {/* Dynamic Variable Chips */}

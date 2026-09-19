@@ -19,7 +19,8 @@ import {
   Settings,
   Globe,
   Wifi,
-  WifiOff
+  WifiOff,
+  HelpCircle
 } from 'lucide-react';
 import { WhatsAppSessionManager } from '@/lib/whatsapp-web/session';
 import { WhatsAppWebSession } from '@/lib/whatsapp-web/types';
@@ -27,9 +28,10 @@ import { WhatsAppWebSession } from '@/lib/whatsapp-web/types';
 interface WhatsAppWebConnectProps {
   session: WhatsAppWebSession;
   onSessionChange: (session: WhatsAppWebSession) => void;
+  onOpenGuide?: () => void;
 }
 
-export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session, onSessionChange }) => {
+export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session, onSessionChange, onOpenGuide }) => {
   const [activeTab, setActiveTab] = useState<'QR' | 'PAIRING'>('QR');
   const [phoneNumberInput, setPhoneNumberInput] = useState('');
   const [realQrUrl, setRealQrUrl] = useState<string | null>(null);
@@ -270,13 +272,25 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
   }
 
   return (
-    <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-6 shadow-xs space-y-6">
+    <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5 sm:p-6 shadow-xs space-y-5">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-100 dark:border-zinc-800 pb-4">
         <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
-              WhatsApp Web Authentication
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 className="text-base sm:text-lg font-bold text-zinc-900 dark:text-zinc-100">
+              WhatsApp Connection
             </h2>
+
+            {onOpenGuide && (
+              <button
+                type="button"
+                onClick={onOpenGuide}
+                title="View Step 1 Connection Guide"
+                className="p-1 rounded-lg text-zinc-400 hover:text-[#5722AF] dark:hover:text-purple-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
+              >
+                <HelpCircle className="w-4 h-4" />
+              </button>
+            )}
+
             <span
               title={resolvedServiceUrl ? `Connected via Worker Gateway: ${resolvedServiceUrl}` : undefined}
               className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${
@@ -286,42 +300,42 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
               }`}
             >
               <span className={`w-1.5 h-1.5 rounded-full ${isWorkerOnline ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
-              {isWorkerOnline ? 'Worker Daemon: Online' : 'Worker: Offline / Standalone'}
+              {isWorkerOnline ? 'Worker Online' : 'Worker Offline'}
             </span>
 
             {/* Cloud Worker URL Settings Trigger */}
             <button
               onClick={() => setShowConfig(!showConfig)}
               className="p-1 text-zinc-400 hover:text-[#5722AF] rounded-lg transition"
-              title="Configure Worker Server URL (for Vercel / Remote Hosting)"
+              title="Configure Worker Gateway URL"
             >
               <Settings className="w-3.5 h-3.5" />
             </button>
           </div>
           <p className="text-xs text-zinc-500 mt-0.5">
-            Real WhatsApp Web Multi-Device connection. Scan the real QR code with your phone or request an official 8-digit Pairing Code.
+            Scan the QR code or link with your phone number to connect.
           </p>
         </div>
 
         {/* Tab Selector */}
-        <div className="flex items-center bg-zinc-100 dark:bg-zinc-800 p-1 rounded-xl">
+        <div className="flex items-center bg-zinc-100 dark:bg-zinc-800 p-1 rounded-xl self-start sm:self-auto">
           <button
             onClick={() => setActiveTab('QR')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
               activeTab === 'QR' ? 'bg-white dark:bg-zinc-700 text-[#5722AF] dark:text-purple-300 shadow-xs' : 'text-zinc-600 dark:text-zinc-400'
             }`}
           >
             <QrCode className="w-3.5 h-3.5" />
-            Scan Real QR Code
+            QR Code
           </button>
           <button
             onClick={() => setActiveTab('PAIRING')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
               activeTab === 'PAIRING' ? 'bg-white dark:bg-zinc-700 text-[#5722AF] dark:text-purple-300 shadow-xs' : 'text-zinc-600 dark:text-zinc-400'
             }`}
           >
             <Smartphone className="w-3.5 h-3.5" />
-            Link with Phone Number
+            Phone Pairing
           </button>
         </div>
       </div>
@@ -441,23 +455,24 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
             </div>
           </div>
 
-          <div className="space-y-4 max-w-md">
-            <h3 className="font-semibold text-sm text-zinc-900 dark:text-zinc-100">
-              Steps to link your WhatsApp:
+          <div className="space-y-3 max-w-xs w-full">
+            <h3 className="font-bold text-xs uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+              Quick Scan Steps
             </h3>
 
-            <ol className="space-y-2.5 text-xs text-zinc-600 dark:text-zinc-400 list-decimal list-inside leading-relaxed">
-              <li>Open <strong>WhatsApp</strong> on your mobile phone</li>
-              <li>Tap <strong>Settings</strong> (on iPhone) or <strong>Menu &gt; Linked Devices</strong> (on Android)</li>
-              <li>Tap <strong>Link a Device</strong></li>
-              <li>Point your phone camera at this real QR code to scan</li>
-            </ol>
-
-            <div className="p-3.5 bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800/60 rounded-xl text-xs text-purple-900 dark:text-purple-200 flex items-start gap-2.5">
-              <Sparkles className="w-4 h-4 text-[#5722AF] shrink-0 mt-0.5" />
-              <p className="leading-relaxed">
-                <strong>Automatic Detection:</strong> As soon as you scan this QR code on your phone, this page will automatically detect the authenticated connection and activate your sender.
-              </p>
+            <div className="space-y-2 text-xs text-zinc-700 dark:text-zinc-300">
+              <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-100 dark:border-zinc-800">
+                <span className="w-5 h-5 rounded-full bg-[#5722AF]/10 text-[#5722AF] dark:text-purple-300 flex items-center justify-center font-bold text-[11px] shrink-0">1</span>
+                <span>Open <strong>WhatsApp</strong> on your phone</span>
+              </div>
+              <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-100 dark:border-zinc-800">
+                <span className="w-5 h-5 rounded-full bg-[#5722AF]/10 text-[#5722AF] dark:text-purple-300 flex items-center justify-center font-bold text-[11px] shrink-0">2</span>
+                <span>Tap <strong>Linked Devices &gt; Link</strong></span>
+              </div>
+              <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-100 dark:border-zinc-800">
+                <span className="w-5 h-5 rounded-full bg-[#5722AF]/10 text-[#5722AF] dark:text-purple-300 flex items-center justify-center font-bold text-[11px] shrink-0">3</span>
+                <span>Point camera at this QR code</span>
+              </div>
             </div>
           </div>
         </div>

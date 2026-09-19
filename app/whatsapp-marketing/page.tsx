@@ -34,6 +34,7 @@ import { WhatsAppWebSession, WebContact } from '@/lib/whatsapp-web/types';
 import { WhatsAppAuthModal } from '@/components/whatsapp-web/WhatsAppAuthModal';
 import { WhatsAppAdminDashboard } from '@/components/whatsapp-web/WhatsAppAdminDashboard';
 import { WhatsAppUserBar } from '@/components/whatsapp-web/WhatsAppUserBar';
+import { WhatsAppStepGuideModal } from '@/components/whatsapp-web/WhatsAppStepGuideModal';
 
 interface CurrentUser {
   id: string;
@@ -47,6 +48,7 @@ interface CurrentUser {
 export default function WhatsAppMarketingPage() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [activeGuideStep, setActiveGuideStep] = useState<number | null>(null);
 
   // Authentication State
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
@@ -289,70 +291,103 @@ export default function WhatsAppMarketingPage() {
             />
 
             {/* Hero Section */}
-            <div className="relative rounded-3xl p-6 md:p-8 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xs overflow-hidden">
-              <div className="absolute top-0 right-0 w-96 h-96 bg-[#5722AF]/10 dark:bg-[#5722AF]/15 rounded-full blur-3xl pointer-events-none" />
+            <div className="relative rounded-2xl sm:rounded-3xl p-5 sm:p-7 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xs overflow-hidden">
+              <div className="absolute top-0 right-0 w-80 h-80 bg-[#5722AF]/10 dark:bg-[#5722AF]/15 rounded-full blur-3xl pointer-events-none" />
 
-              <div className="relative z-10 space-y-3 max-w-3xl">
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#5722AF]/10 text-[#5722AF] dark:bg-[#5722AF]/20 dark:text-purple-300 text-xs font-semibold">
-                  <Zap className="w-3.5 h-3.5" />
-                  Real WhatsApp Multi-Device Session &bull; Persistent Architecture
+              <div className="relative z-10 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div className="space-y-1.5 max-w-2xl">
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#5722AF]/10 text-[#5722AF] dark:bg-[#5722AF]/20 dark:text-purple-300 text-xs font-semibold">
+                    <Zap className="w-3.5 h-3.5" />
+                    <span>WhatsApp Web Bulk Messaging</span>
+                  </div>
+
+                  <h1 className="text-xl sm:text-2xl md:text-3xl font-extrabold text-zinc-900 dark:text-white tracking-tight">
+                    Campaign &amp; Message Studio
+                  </h1>
+
+                  <p className="text-xs sm:text-sm text-zinc-600 dark:text-zinc-400">
+                    Connect WhatsApp, import contacts, compose personalized templates with media, and dispatch campaigns safely.
+                  </p>
                 </div>
 
-                <h1 className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-zinc-900 dark:text-white tracking-tight">
-                  WhatsApp Bulk Message &amp; Media Campaign Manager
-                </h1>
-
-                <p className="text-sm sm:text-base text-zinc-600 dark:text-zinc-400 leading-relaxed">
-                  Connect via <strong>WhatsApp Web QR Code</strong> or <strong>8-Digit Pairing Code</strong>. Add contacts, attach images or PDF documents, compose personalized messages with <code className="bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded text-xs">{"{name}"}</code> and <code className="bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded text-xs">{"{phone}"}</code>, and dispatch sequentially with safe rate-limited intervals.
-                </p>
-
-                <div className="flex flex-wrap items-center gap-4 pt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                  <div className="flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                    <span>Real Multi-Device Session Link</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                    <span>Image &amp; PDF Attachments Support</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                    <span>Persistent on Vercel &amp; Cloud</span>
-                  </div>
+                <div className="flex items-center gap-2 self-start md:self-auto shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setActiveGuideStep(1)}
+                    className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#5722AF] hover:bg-[#481c93] text-white text-xs font-semibold shadow-xs transition cursor-pointer"
+                  >
+                    <HelpCircle className="w-4 h-4" />
+                    <span>Interactive 4-Step Guide</span>
+                  </button>
                 </div>
               </div>
             </div>
 
             {/* Step 1: Real WhatsApp Web Connection */}
             <section className="space-y-2">
-              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#5722AF] dark:text-purple-400">
-                <span className="w-5 h-5 rounded-full bg-[#5722AF] text-white flex items-center justify-center text-[10px]">1</span>
-                Authentication &bull; Scan QR Code or Link with Phone Number
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#5722AF] dark:text-purple-400">
+                  <span className="w-5 h-5 rounded-full bg-[#5722AF] text-white flex items-center justify-center text-[10px]">1</span>
+                  <span>Authentication &bull; Link WhatsApp Device</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveGuideStep(1)}
+                  className="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-[#5722AF] dark:text-zinc-400 dark:hover:text-purple-300 font-medium transition cursor-pointer"
+                  title="View Step 1 guide"
+                >
+                  <HelpCircle className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Step 1 Guide</span>
+                </button>
               </div>
               <WhatsAppWebConnect
                 session={session}
                 onSessionChange={setSession}
+                onOpenGuide={() => setActiveGuideStep(1)}
               />
             </section>
 
             {/* Step 2 & 3: Audience Numbers & Message Composer with Media */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <section className="space-y-2">
-                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#5722AF] dark:text-purple-400">
-                  <span className="w-5 h-5 rounded-full bg-[#5722AF] text-white flex items-center justify-center text-[10px]">2</span>
-                  Audience &amp; Phone Numbers
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#5722AF] dark:text-purple-400">
+                    <span className="w-5 h-5 rounded-full bg-[#5722AF] text-white flex items-center justify-center text-[10px]">2</span>
+                    <span>Audience &bull; Contact List</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveGuideStep(2)}
+                    className="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-[#5722AF] dark:text-zinc-400 dark:hover:text-purple-300 font-medium transition cursor-pointer"
+                    title="View Step 2 guide"
+                  >
+                    <HelpCircle className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Step 2 Guide</span>
+                  </button>
                 </div>
                 <WhatsAppContactList
                   contacts={contacts}
                   onContactsChange={handleContactsChange}
                   messageTemplate={messageTemplate}
+                  onOpenGuide={() => setActiveGuideStep(2)}
                 />
               </section>
 
               <section className="space-y-2">
-                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#5722AF] dark:text-purple-400">
-                  <span className="w-5 h-5 rounded-full bg-[#5722AF] text-white flex items-center justify-center text-[10px]">3</span>
-                  Message Template, Dynamic Tags &amp; Media
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#5722AF] dark:text-purple-400">
+                    <span className="w-5 h-5 rounded-full bg-[#5722AF] text-white flex items-center justify-center text-[10px]">3</span>
+                    <span>Message &bull; Template &amp; Media</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveGuideStep(3)}
+                    className="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-[#5722AF] dark:text-zinc-400 dark:hover:text-purple-300 font-medium transition cursor-pointer"
+                    title="View Step 3 guide"
+                  >
+                    <HelpCircle className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Step 3 Guide</span>
+                  </button>
                 </div>
                 <WhatsAppMessageComposer
                   message={messageTemplate}
@@ -362,15 +397,27 @@ export default function WhatsAppMarketingPage() {
                   media={media}
                   onMediaChange={setMedia}
                   previewContact={contacts[0]}
+                  onOpenGuide={() => setActiveGuideStep(3)}
                 />
               </section>
             </div>
 
             {/* Step 4: Sequential Campaign Dispatcher */}
             <section className="space-y-2">
-              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#5722AF] dark:text-purple-400">
-                <span className="w-5 h-5 rounded-full bg-[#5722AF] text-white flex items-center justify-center text-[10px]">4</span>
-                Sequential Auto-Sender Campaign Engine
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#5722AF] dark:text-purple-400">
+                  <span className="w-5 h-5 rounded-full bg-[#5722AF] text-white flex items-center justify-center text-[10px]">4</span>
+                  <span>Campaign &bull; Dispatch Engine</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveGuideStep(4)}
+                  className="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-[#5722AF] dark:text-zinc-400 dark:hover:text-purple-300 font-medium transition cursor-pointer"
+                  title="View Step 4 guide"
+                >
+                  <HelpCircle className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Step 4 Guide</span>
+                </button>
               </div>
               <WhatsAppAutoSender
                 session={session}
@@ -379,10 +426,18 @@ export default function WhatsAppMarketingPage() {
                 messageTemplate={messageTemplate}
                 delaySeconds={delaySeconds}
                 media={media}
+                onOpenGuide={() => setActiveGuideStep(4)}
               />
             </section>
           </div>
         )}
+
+        {/* Interactive 4-Step Guide Modal */}
+        <WhatsAppStepGuideModal
+          step={activeGuideStep}
+          onClose={() => setActiveGuideStep(null)}
+          onSelectStep={setActiveGuideStep}
+        />
       </main>
 
       <Footer />

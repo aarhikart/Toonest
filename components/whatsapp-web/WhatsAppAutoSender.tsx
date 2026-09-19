@@ -13,7 +13,8 @@ import {
   ListFilter,
   ExternalLink,
   ShieldCheck,
-  Server
+  Server,
+  HelpCircle
 } from 'lucide-react';
 import { WebContact, WhatsAppWebSession } from '@/lib/whatsapp-web/types';
 import { WhatsAppSenderEngine } from '@/lib/whatsapp-web/sender';
@@ -27,6 +28,7 @@ interface WhatsAppAutoSenderProps {
   messageTemplate: string;
   delaySeconds: number;
   media: MediaAttachment | null;
+  onOpenGuide?: () => void;
 }
 
 interface LogItem {
@@ -47,7 +49,8 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
   onContactsUpdate,
   messageTemplate,
   delaySeconds,
-  media
+  media,
+  onOpenGuide
 }) => {
   const [isRunning, setIsRunning] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -296,15 +299,27 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
   };
 
   return (
-    <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-6 shadow-xs space-y-6">
+    <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5 sm:p-6 shadow-xs space-y-5">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-            <Radio className="w-4 h-4 text-[#5722AF]" />
-            Sequential Auto-Sender Campaign Engine
-          </h3>
-          <p className="text-xs text-zinc-500">
-            Real WhatsApp multi-device background dispatching with automated jitter intervals and delivery verification.
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+              <Radio className="w-4 h-4 text-[#5722AF]" />
+              Sequential Campaign Engine
+            </h3>
+            {onOpenGuide && (
+              <button
+                type="button"
+                onClick={onOpenGuide}
+                title="View Step 4 Dispatcher Guide"
+                className="p-1 rounded-lg text-zinc-400 hover:text-[#5722AF] dark:hover:text-purple-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
+              >
+                <HelpCircle className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          <p className="text-xs text-zinc-500 mt-0.5">
+            Automated rate-limited sequential message delivery.
           </p>
         </div>
 
