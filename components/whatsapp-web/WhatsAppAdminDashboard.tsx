@@ -268,6 +268,35 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
     }
   };
 
+  const handleDeleteAllCampaigns = async () => {
+    const confirmed = window.confirm(
+      'Are you sure you want to delete ALL recorded campaigns and results from the database?\n\nThis will reset the campaign count to 0. This action cannot be undone.'
+    );
+    if (!confirmed) return;
+
+    try {
+      const res = await fetch('/api/admin/campaigns?all=true', {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCampaigns([]);
+        setCampaignSummary({
+          totalCampaigns: 0,
+          totalContacts: 0,
+          totalSuccessful: 0,
+          totalFailed: 0,
+          deliveryRate: '100'
+        });
+        await fetchUsers();
+      } else {
+        alert(data.error || 'Failed to delete campaigns.');
+      }
+    } catch (err) {
+      alert('Error clearing campaigns.');
+    }
+  };
+
   // Aggregated totals across all users
   const totalUsers = users.length;
   const totalCampaigns = campaigns.length;
@@ -419,20 +448,33 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
           )}
 
           {activeTab === 'campaigns' && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-zinc-500 dark:text-zinc-400">Filter by User:</span>
-              <select
-                value={selectedUserFilter}
-                onChange={e => handleFilterChange(e.target.value)}
-                className="px-3 py-1.5 rounded-xl bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs font-medium text-zinc-900 dark:text-white focus:outline-hidden"
-              >
-                <option value="all">All Users ({users.length})</option>
-                {users.map(u => (
-                  <option key={u.id} value={u.username}>
-                    {u.businessName} (@{u.username})
-                  </option>
-                ))}
-              </select>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">Filter:</span>
+                <select
+                  value={selectedUserFilter}
+                  onChange={e => handleFilterChange(e.target.value)}
+                  className="px-3 py-1.5 rounded-xl bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs font-medium text-zinc-900 dark:text-white focus:outline-hidden"
+                >
+                  <option value="all">All Users ({users.length})</option>
+                  {users.map(u => (
+                    <option key={u.id} value={u.username}>
+                      {u.businessName} (@{u.username})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {campaigns.length > 0 && (
+                <button
+                  onClick={handleDeleteAllCampaigns}
+                  title="Delete all recorded campaigns from database"
+                  className="px-3 py-1.5 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/30 dark:hover:bg-rose-950/60 text-rose-700 dark:text-rose-300 text-xs font-semibold flex items-center gap-1.5 transition shadow-2xs cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete All Campaigns</span>
+                </button>
+              )}
             </div>
           )}
         </div>

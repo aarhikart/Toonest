@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb/client';
 import { Campaign } from '@/lib/mongodb/models';
 import { getSessionUser } from '@/lib/auth/session';
@@ -59,7 +59,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// DELETE: Delete a campaign record
+// DELETE: Delete a campaign record or all campaigns
 export async function DELETE(req: NextRequest) {
   try {
     const admin = await getSessionUser(req);
@@ -69,12 +69,22 @@ export async function DELETE(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const campaignId = searchParams.get('id');
+    const deleteAll = searchParams.get('all');
+
+    await connectToDatabase();
+
+    if (deleteAll === 'true') {
+      const deleteResult = await Campaign.deleteMany({});
+      return NextResponse.json({
+        success: true,
+        message: `Successfully deleted all ${deleteResult.deletedCount} campaigns.`
+      });
+    }
 
     if (!campaignId) {
       return NextResponse.json({ success: false, error: 'Campaign ID is required.' }, { status: 400 });
     }
 
-    await connectToDatabase();
     await Campaign.findByIdAndDelete(campaignId);
 
     return NextResponse.json({ success: true, message: 'Campaign deleted successfully.' });
