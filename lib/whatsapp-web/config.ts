@@ -1,6 +1,38 @@
 import { NextRequest } from 'next/server';
 
-export function getWhatsAppServiceUrl(req?: NextRequest): string {
+let cachedGlobalWorkerUrl: string | null = null;
+let lastCacheTime = 0;
+const CACHE_TTL_MS = 10000; // 10s memory cache
+
+export async function getGlobalWorkerGatewayUrl(): Promise<string | null> {
+  const now = Date.now();
+  if (cachedGlobalWorkerUrl !== null && (now - lastCacheTime < CACHE_TTL_MS)) {
+    return cachedGlobalWorkerUrl;
+  }
+
+  try {
+    const { connectToDatabase } = await import('@/lib/mongodb/client');
+    const { SystemSetting } = await import('@/lib/mongodb/models');
+    await connectToDatabase();
+    const setting = await SystemSetting.findOne({ key: 'workerGatewayUrl' });
+    if (setting && setting.value && setting.value.trim().startsWith('http')) {
+      cachedGlobalWorkerUrl = setting.value.trim().replace(/\/$/, '');
+      lastCacheTime = now;
+      return cachedGlobalWorkerUrl;
+    }
+  } catch (err) {
+    console.error('Failed to load global worker gateway URL from MongoDB:', err);
+  }
+
+  return null;
+}
+
+export function setCachedGlobalWorkerUrl(url: string | null) {
+  cachedGlobalWorkerUrl = url ? url.trim().replace(/\/$/, '') : null;
+  lastCacheTime = Date.now();
+}
+
+export async function getWhatsAppServiceUrl(req?: NextRequest): Promise<string> {
   if (req) {
     const customHeader = req.headers.get('x-worker-url');
     if (customHeader && customHeader.trim().startsWith('http')) {
@@ -21,6 +53,13 @@ export function getWhatsAppServiceUrl(req?: NextRequest): string {
       return customQuery.trim().replace(/\/$/, '');
     }
   }
+
+  // Check Admin Global Worker Gateway URL configured in MongoDB
+  const globalUrl = await getGlobalWorkerGatewayUrl();
+  if (globalUrl) {
+    return globalUrl;
+  }
+
   return (process.env.WHATSAPP_SERVICE_URL || 'http://localhost:5001').replace(/\/$/, '');
 }
 

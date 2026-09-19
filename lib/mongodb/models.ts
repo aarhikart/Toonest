@@ -1,4 +1,4 @@
-﻿import mongoose, { Schema, model, models, Document } from 'mongoose';
+import mongoose, { Schema, model, models, Document } from 'mongoose';
 
 export interface IUser extends Document {
   username: string;
@@ -68,5 +68,18 @@ const CampaignSchema = new Schema<ICampaign>({
   ]
 });
 
+export interface ISystemSetting extends Document {
+  key: string;
+  value: string;
+  updatedAt: Date;
+}
+
+const SystemSettingSchema = new Schema<ISystemSetting>({
+  key: { type: String, required: true, unique: true, index: true },
+  value: { type: String, required: true },
+  updatedAt: { type: Date, default: Date.now }
+});
+
 export const User = models.User || model<IUser>('User', UserSchema);
 export const Campaign = models.Campaign || model<ICampaign>('Campaign', CampaignSchema);
+export const SystemSetting = models.SystemSetting || model<ISystemSetting>('SystemSetting', SystemSettingSchema);

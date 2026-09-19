@@ -23,7 +23,13 @@ import {
   FileText,
   X,
   Radio,
-  ExternalLink
+  ExternalLink,
+  Server,
+  Globe,
+  Wifi,
+  WifiOff,
+  Loader2,
+  Check
 } from 'lucide-react';
 
 interface ManagedUser {
@@ -69,6 +75,14 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [selectedUserFilter, setSelectedUserFilter] = useState<string>('all');
 
+  // Worker Gateway Management State
+  const [gatewayUrl, setGatewayUrl] = useState<string>('');
+  const [gatewayInput, setGatewayInput] = useState<string>('');
+  const [isGatewayOnline, setIsGatewayOnline] = useState<boolean>(false);
+  const [gatewayPingMs, setGatewayPingMs] = useState<number | null>(null);
+  const [isSavingGateway, setIsSavingGateway] = useState<boolean>(false);
+  const [gatewayStatusMessage, setGatewayStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   // Create User Modal State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newBusinessName, setNewBusinessName] = useState('');
@@ -87,6 +101,72 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
   const [resetPasswordValue, setResetPasswordValue] = useState('');
   const [resetMessage, setResetMessage] = useState('');
   const [isResetting, setIsResetting] = useState(false);
+
+  const fetchGatewayInfo = async () => {
+    try {
+      const res = await fetch('/api/admin/gateway');
+      const data = await res.json();
+      if (data.success) {
+        setGatewayUrl(data.gatewayUrl || '');
+        setGatewayInput(data.gatewayUrl || data.activeUrl || '');
+        setIsGatewayOnline(data.isOnline ?? false);
+        setGatewayPingMs(data.pingMs ?? null);
+      }
+    } catch (err) {
+      console.error('Failed to fetch gateway info:', err);
+    }
+  };
+
+  const handleSaveGateway = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!gatewayInput.trim()) return;
+
+    setIsSavingGateway(true);
+    setGatewayStatusMessage(null);
+    try {
+      const res = await fetch('/api/admin/gateway', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gatewayUrl: gatewayInput.trim() })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setGatewayUrl(data.gatewayUrl);
+        setIsGatewayOnline(data.isOnline ?? false);
+        setGatewayPingMs(data.pingMs ?? null);
+        setGatewayStatusMessage({
+          type: data.isOnline ? 'success' : 'error',
+          text: data.message
+        });
+      } else {
+        setGatewayStatusMessage({
+          type: 'error',
+          text: data.error || 'Failed to save gateway URL'
+        });
+      }
+    } catch (err: any) {
+      setGatewayStatusMessage({
+        type: 'error',
+        text: err.message || 'Network error saving gateway'
+      });
+    } finally {
+      setIsSavingGateway(false);
+    }
+  };
+
+  const handleResetGateway = async () => {
+    if (!window.confirm('Reset Worker Gateway URL back to default local address?')) return;
+    try {
+      await fetch('/api/admin/gateway', { method: 'DELETE' });
+      await fetchGatewayInfo();
+      setGatewayStatusMessage({
+        type: 'success',
+        text: 'Worker Gateway URL reset to default.'
+      });
+    } catch (err) {
+      alert('Error resetting gateway.');
+    }
+  };
 
   const fetchUsers = async () => {
     try {
@@ -119,7 +199,7 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
 
   const loadAllData = async () => {
     setIsLoading(true);
-    await Promise.all([fetchUsers(), fetchCampaigns(selectedUserFilter)]);
+    await Promise.all([fetchUsers(), fetchCampaigns(selectedUserFilter), fetchGatewayInfo()]);
     setIsLoading(false);
   };
 
@@ -352,6 +432,111 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
             <span>Logout</span>
           </button>
         </div>
+      </div>
+
+      {/* Global Worker Gateway Configuration Card */}
+      <div className="p-5 sm:p-6 bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-xs space-y-4 relative overflow-hidden">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+              <Server className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-base font-bold text-zinc-900 dark:text-white">Global WhatsApp Worker Gateway</h3>
+                <span
+                  className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                    isGatewayOnline
+                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                      : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                  }`}
+                >
+                  <span className={`w-2 h-2 rounded-full ${isGatewayOnline ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
+                  {isGatewayOnline ? `Worker Online (${gatewayPingMs ?? 0}ms)` : 'Worker Offline'}
+                </span>
+              </div>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                All client users will automatically connect through this gateway. Each user retains an isolated WhatsApp session.
+              </p>
+            </div>
+          </div>
+
+          {gatewayUrl && (
+            <button
+              onClick={handleResetGateway}
+              className="self-start md:self-auto text-xs text-zinc-400 hover:text-rose-600 dark:hover:text-rose-400 transition cursor-pointer"
+            >
+              Reset to Local Default
+            </button>
+          )}
+        </div>
+
+        {gatewayStatusMessage && (
+          <div
+            className={`p-3 rounded-xl text-xs flex items-start gap-2 animate-in fade-in duration-200 ${
+              gatewayStatusMessage.type === 'success'
+                ? 'bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 text-emerald-700 dark:text-emerald-300'
+                : 'bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300'
+            }`}
+          >
+            {gatewayStatusMessage.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+            ) : (
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            )}
+            <span>{gatewayStatusMessage.text}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleSaveGateway} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          <div className="relative flex-1">
+            <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-400">
+              <Globe className="w-4 h-4" />
+            </div>
+            <input
+              type="url"
+              required
+              value={gatewayInput}
+              onChange={e => setGatewayInput(e.target.value)}
+              placeholder="e.g. https://your-tunnel.trycloudflare.com or https://gateway.yourdomain.com"
+              className="w-full pl-10 pr-4 py-2.5 bg-zinc-50 dark:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-700 rounded-xl text-xs sm:text-sm font-mono text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-hidden focus:ring-2 focus:ring-[#5722AF]/30 focus:border-[#5722AF] transition"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={isSavingGateway || !gatewayInput.trim()}
+            className="px-5 py-2.5 rounded-xl bg-[#5722AF] hover:bg-[#471b92] text-white text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 transition shadow-xs disabled:opacity-50 cursor-pointer"
+          >
+            {isSavingGateway ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Testing &amp; Saving...</span>
+              </>
+            ) : (
+              <>
+                <Wifi className="w-4 h-4" />
+                <span>Test &amp; Set Gateway URL</span>
+              </>
+            )}
+          </button>
+        </form>
+
+        {gatewayUrl && (
+          <div className="flex items-center gap-2 text-[11px] text-zinc-500 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-800/50 p-2.5 rounded-xl border border-zinc-200/60 dark:border-zinc-700/60">
+            <span className="font-semibold text-zinc-700 dark:text-zinc-300">Active Global Gateway:</span>
+            <code className="font-mono text-[#5722AF] dark:text-purple-300">{gatewayUrl}</code>
+            <a
+              href={`${gatewayUrl}/status`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="ml-auto inline-flex items-center gap-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+            >
+              <span>Test Status Endpoint</span>
+              <ExternalLink className="w-3 h-3" />
+            </a>
+          </div>
+        )}
       </div>
 
       {/* KPI Metric Overview Cards */}

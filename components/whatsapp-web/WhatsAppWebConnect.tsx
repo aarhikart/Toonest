@@ -45,6 +45,7 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
   // Custom Worker URL for Vercel / Remote Hosting
   const [workerUrl, setWorkerUrl] = useState<string>('');
   const [workerInput, setWorkerInput] = useState<string>('');
+  const [resolvedServiceUrl, setResolvedServiceUrl] = useState<string>('');
   const [showConfig, setShowConfig] = useState<boolean>(false);
 
   // Load saved worker URL from localStorage on mount
@@ -91,6 +92,9 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
 
       setIsWorkerOnline(data.isWorkerOnline ?? false);
       setServiceStatus(data.state || 'CONNECTING');
+      if (data.resolvedServiceUrl) {
+        setResolvedServiceUrl(data.resolvedServiceUrl);
+      }
 
       if (data.qrCodeDataUrl) {
         setRealQrUrl(data.qrCodeDataUrl);
@@ -270,11 +274,14 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
             <h2 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
               WhatsApp Web Authentication
             </h2>
-            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${
-              isWorkerOnline
-                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-            }`}>
+            <span
+              title={resolvedServiceUrl ? `Connected via Worker Gateway: ${resolvedServiceUrl}` : undefined}
+              className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${
+                isWorkerOnline
+                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                  : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+              }`}
+            >
               <span className={`w-1.5 h-1.5 rounded-full ${isWorkerOnline ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
               {isWorkerOnline ? 'Worker Daemon: Online' : 'Worker: Offline / Standalone'}
             </span>

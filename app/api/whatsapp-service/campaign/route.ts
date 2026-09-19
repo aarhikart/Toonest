@@ -4,7 +4,7 @@ import { getWhatsAppServiceUrl, getWhatsAppServiceSecret, getWorkerHeaders, getW
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
-  const serviceUrl = getWhatsAppServiceUrl(req);
+  const serviceUrl = await getWhatsAppServiceUrl(req);
   const serviceSecret = getWhatsAppServiceSecret();
   const userId = getWorkerUserId(req);
 
@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const serviceUrl = getWhatsAppServiceUrl(req);
+  const serviceUrl = await getWhatsAppServiceUrl(req);
   const serviceSecret = getWhatsAppServiceSecret();
   const userId = getWorkerUserId(req);
 

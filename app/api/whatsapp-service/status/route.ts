@@ -31,7 +31,7 @@ function ensureWorkerRunning() {
 }
 
 export async function GET(req: NextRequest) {
-  const serviceUrl = getWhatsAppServiceUrl(req);
+  const serviceUrl = await getWhatsAppServiceUrl(req);
   const serviceSecret = getWhatsAppServiceSecret();
   const userId = getWorkerUserId(req);
   const { searchParams } = new URL(req.url);
