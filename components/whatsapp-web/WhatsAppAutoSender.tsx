@@ -170,16 +170,39 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
 
           let data = await res.json().catch(() => ({}));
 
-          // If failed due to temporary server/network error (5xx), auto-retry once after 3.5 seconds
-          if (!res.ok && res.status >= 500) {
-            console.log(`First send attempt encountered status ${res.status}, waiting 3.5s and retrying once...`);
-            await new Promise(r => setTimeout(r, 3500));
-            res = await fetch('/api/whatsapp-service/send', {
-              method: 'POST',
-              headers: requestHeaders,
-              body: JSON.stringify(payload)
-            });
-            data = await res.json().catch(() => ({}));
+          // If failed due to HTTP 413 (Vercel payload limit) or temporary server error (5xx),
+          // auto-fallback directly to the worker gateway
+          if (!res.ok && (res.status === 413 || res.status >= 500)) {
+            const directTarget = savedWorkerUrl || (typeof window !== 'undefined' ? (window as any).__toolnest_gateway_url : '');
+            if (directTarget && directTarget.startsWith('http')) {
+              try {
+                console.log(`Endpoint returned ${res.status}. Retrying dispatch directly to Worker Gateway: ${directTarget}`);
+                const directRes = await fetch(`${directTarget.replace(/\/$/, '')}/send`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'x-service-key': 'toolnest_secure_service_token_2026',
+                    'x-user-id': WhatsAppSessionManager.getUserId()
+                  },
+                  body: JSON.stringify({ ...payload, userId: WhatsAppSessionManager.getUserId() })
+                });
+                if (directRes.ok) {
+                  res = directRes;
+                  data = await directRes.json().catch(() => ({}));
+                }
+              } catch (directErr) {
+                console.warn('Direct gateway retry error:', directErr);
+              }
+            } else if (res.status >= 500) {
+              console.log(`First send attempt encountered status ${res.status}, waiting 3.5s and retrying once...`);
+              await new Promise(r => setTimeout(r, 3500));
+              res = await fetch('/api/whatsapp-service/send', {
+                method: 'POST',
+                headers: requestHeaders,
+                body: JSON.stringify(payload)
+              });
+              data = await res.json().catch(() => ({}));
+            }
           }
 
           if (res.ok && data.success) {
@@ -187,7 +210,11 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
             msgId = data.messageId || '';
           } else {
             sendSuccess = false;
-            failureReason = data.error || `HTTP ${res.status}: Delivery rejected`;
+            if (res.status === 413) {
+              failureReason = 'Media file is too large for cloud hosting (HTTP 413). Please re-attach the image so it is auto-compressed.';
+            } else {
+              failureReason = data.error || `HTTP ${res.status}: Delivery rejected`;
+            }
           }
         } catch (err: any) {
           sendSuccess = false;

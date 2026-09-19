@@ -72,28 +72,90 @@ export const WhatsAppMessageComposer: React.FC<WhatsAppMessageComposerProps> = (
     }
   ];
 
-  const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const optimizeImage = (file: File): Promise<{ dataUrl: string; size: number }> => {
+    return new Promise((resolve) => {
+      // For PDFs or non-images, return raw dataUrl
+      if (!file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+          const dataUrl = evt.target?.result as string;
+          resolve({ dataUrl, size: file.size });
+        };
+        reader.readAsDataURL(file);
+        return;
+      }
+
+      // For images, optimize using off-screen HTML5 Canvas (max 1600px dimension, JPEG 0.85)
+      // This prevents HTTP 413 (Payload Too Large) on Vercel and cloud proxies
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        const img = new Image();
+        img.onload = () => {
+          const maxDim = 1600;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve({ dataUrl: evt.target?.result as string, size: file.size });
+            return;
+          }
+
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+          const approxBytes = Math.round((compressedDataUrl.length - 22) * 0.75);
+          resolve({ dataUrl: compressedDataUrl, size: approxBytes });
+        };
+        img.onerror = () => {
+          resolve({ dataUrl: evt.target?.result as string, size: file.size });
+        };
+        img.src = evt.target?.result as string;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Check size limit (max 10MB)
-    if (file.size > 10 * 1024 * 1024) {
-      alert('Attachment size must be under 10MB.');
+    // Check size limit (max 25MB)
+    if (file.size > 25 * 1024 * 1024) {
+      alert('Attachment size must be under 25MB.');
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = evt => {
-      const dataUrl = evt.target?.result as string;
+    if (file.type === 'application/pdf' && file.size > 4.2 * 1024 * 1024) {
+      alert('PDF documents must be under 4MB for reliable transmission. Please compress or select a smaller PDF.');
+      return;
+    }
+
+    try {
+      const { dataUrl, size } = await optimizeImage(file);
       onMediaChange({
         name: file.name,
-        type: file.type,
-        size: file.size,
+        type: file.type.startsWith('image/') ? 'image/jpeg' : file.type,
+        size,
         dataUrl,
         isImage: file.type.startsWith('image/')
       });
-    };
-    reader.readAsDataURL(file);
+    } catch {
+      alert('Failed to process attachment.');
+    }
+
     e.target.value = '';
   };
 

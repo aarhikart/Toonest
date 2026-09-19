@@ -94,6 +94,9 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
       setServiceStatus(data.state || 'CONNECTING');
       if (data.resolvedServiceUrl) {
         setResolvedServiceUrl(data.resolvedServiceUrl);
+        if (typeof window !== 'undefined') {
+          (window as any).__toolnest_gateway_url = data.resolvedServiceUrl;
+        }
       }
 
       if (data.qrCodeDataUrl) {

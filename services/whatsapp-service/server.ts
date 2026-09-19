@@ -31,7 +31,8 @@ sessionManager.autoRestoreSessions().then(() => {
 });
 
 app.use(cors());
-app.use(express.json({ limit: '25mb' }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Strip optional /api/whatsapp-service prefix when deployed behind monorepo service rewrites
 app.use((req, res, next) => {
