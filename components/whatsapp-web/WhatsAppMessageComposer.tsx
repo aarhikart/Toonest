@@ -35,6 +35,18 @@ interface WhatsAppMessageComposerProps {
   onOpenGuide?: () => void;
 }
 
+function getShortFileName(name: string, maxLen = 22): string {
+  if (!name || name.length <= maxLen) return name;
+  const lastDot = name.lastIndexOf('.');
+  if (lastDot > 0 && lastDot > name.length - 6) {
+    const ext = name.slice(lastDot);
+    const base = name.slice(0, lastDot);
+    const keep = Math.max(maxLen - ext.length - 3, 6);
+    return base.slice(0, keep) + '...' + ext;
+  }
+  return name.slice(0, maxLen - 3) + '...';
+}
+
 export const WhatsAppMessageComposer: React.FC<WhatsAppMessageComposerProps> = ({
   message,
   onMessageChange,
@@ -242,17 +254,22 @@ export const WhatsAppMessageComposer: React.FC<WhatsAppMessageComposerProps> = (
                 Attach Image or PDF Document (Optional)
               </button>
             ) : (
-              <div className="p-3 bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800/50 rounded-xl flex items-center justify-between">
-                <div className="flex items-center gap-3">
+              <div className="p-2.5 sm:p-3 bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800/50 rounded-xl flex items-center justify-between gap-2.5 min-w-0">
+                <div className="flex items-center gap-2.5 min-w-0 flex-1 overflow-hidden">
                   {media.isImage ? (
-                    <img src={media.dataUrl} alt="Preview" className="w-10 h-10 object-cover rounded-lg border border-purple-200" />
+                    <img src={media.dataUrl} alt="Preview" className="w-10 h-10 object-cover rounded-lg border border-purple-200 shrink-0" />
                   ) : (
-                    <div className="w-10 h-10 rounded-lg bg-red-100 dark:bg-red-950 text-red-600 flex items-center justify-center font-bold text-xs">
+                    <div className="w-10 h-10 rounded-lg bg-red-100 dark:bg-red-950 text-red-600 flex items-center justify-center font-bold text-xs shrink-0">
                       PDF
                     </div>
                   )}
-                  <div>
-                    <div className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 truncate max-w-xs">{media.name}</div>
+                  <div className="min-w-0 flex-1">
+                    <div
+                      className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 truncate block"
+                      title={media.name}
+                    >
+                      {getShortFileName(media.name, 22)}
+                    </div>
                     <div className="text-[11px] text-zinc-400 font-mono">{(media.size / 1024).toFixed(1)} KB</div>
                   </div>
                 </div>
@@ -260,7 +277,7 @@ export const WhatsAppMessageComposer: React.FC<WhatsAppMessageComposerProps> = (
                 <button
                   type="button"
                   onClick={() => onMediaChange(null)}
-                  className="p-1.5 text-zinc-400 hover:text-rose-600 transition"
+                  className="p-1.5 text-zinc-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 transition shrink-0"
                   title="Remove attachment"
                 >
                   <X className="w-4 h-4" />
@@ -334,9 +351,9 @@ export const WhatsAppMessageComposer: React.FC<WhatsAppMessageComposerProps> = (
                   <img src={media.dataUrl} alt="Attached image" className="rounded-xl max-h-36 w-full object-cover" />
                 )}
                 {media && !media.isImage && (
-                  <div className="p-2 bg-zinc-100 dark:bg-zinc-800 rounded-lg flex items-center gap-2 text-[11px] font-mono">
-                    <FileText className="w-4 h-4 text-red-500" />
-                    <span className="truncate">{media.name}</span>
+                  <div className="p-2 bg-zinc-100 dark:bg-zinc-800 rounded-lg flex items-center gap-2 text-[11px] font-mono min-w-0">
+                    <FileText className="w-4 h-4 text-red-500 shrink-0" />
+                    <span className="truncate" title={media.name}>{getShortFileName(media.name, 18)}</span>
                   </div>
                 )}
                 <p className="leading-relaxed whitespace-pre-line text-zinc-800 dark:text-zinc-200 text-xs">

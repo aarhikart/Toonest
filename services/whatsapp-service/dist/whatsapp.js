@@ -90,6 +90,23 @@ class WhatsAppSessionEngine {
         try {
             const authPath = this.getAuthPath();
             fs_1.default.mkdirSync(authPath, { recursive: true });
+            // Automatically purge stale lockfiles from any unexpected previous exit or crash
+            try {
+                const sessionPath = path_1.default.join(authPath, 'session');
+                if (fs_1.default.existsSync(sessionPath)) {
+                    const lockItems = ['DevToolsActivePort', 'lockfile', 'SingletonLock', 'SingletonCookie', 'SingletonSocket'];
+                    for (const item of lockItems) {
+                        const itemPath = path_1.default.join(sessionPath, item);
+                        if (fs_1.default.existsSync(itemPath)) {
+                            try {
+                                fs_1.default.unlinkSync(itemPath);
+                            }
+                            catch (_) { }
+                        }
+                    }
+                }
+            }
+            catch (_) { }
             if (this.client) {
                 try {
                     await this.client.destroy();
@@ -197,14 +214,31 @@ class WhatsAppSessionEngine {
             await client.initialize();
         }
         catch (err) {
-            console.error('[WhatsApp Worker] Failed to initialize WhatsApp Web client:', err.message || err);
+            console.error(`[WhatsApp Worker (${this.userId})] Failed to initialize WhatsApp Web client:`, err.message || err);
             this.state = 'DISCONNECTED';
             if (this.pairingCodeWaiter) {
                 clearTimeout(this.pairingCodeWaiter.timeout);
                 this.pairingCodeWaiter.reject(new Error(err.message || 'Failed to initialize client'));
                 this.pairingCodeWaiter = null;
             }
-            this.scheduleReconnect(5000);
+            try {
+                const authPath = this.getAuthPath();
+                const sessionPath = path_1.default.join(authPath, 'session');
+                if (fs_1.default.existsSync(sessionPath)) {
+                    const lockItems = ['DevToolsActivePort', 'lockfile', 'SingletonLock', 'SingletonCookie', 'SingletonSocket'];
+                    for (const item of lockItems) {
+                        const itemPath = path_1.default.join(sessionPath, item);
+                        if (fs_1.default.existsSync(itemPath)) {
+                            try {
+                                fs_1.default.unlinkSync(itemPath);
+                            }
+                            catch (_) { }
+                        }
+                    }
+                }
+            }
+            catch (_) { }
+            this.scheduleReconnect(8000);
         }
         finally {
             this.isConnecting = false;

@@ -127,6 +127,20 @@ export class WhatsAppSessionEngine {
       const authPath = this.getAuthPath();
       fs.mkdirSync(authPath, { recursive: true });
 
+      // Automatically purge stale lockfiles from any unexpected previous exit or crash
+      try {
+        const sessionPath = path.join(authPath, 'session');
+        if (fs.existsSync(sessionPath)) {
+          const lockItems = ['DevToolsActivePort', 'lockfile', 'SingletonLock', 'SingletonCookie', 'SingletonSocket'];
+          for (const item of lockItems) {
+            const itemPath = path.join(sessionPath, item);
+            if (fs.existsSync(itemPath)) {
+              try { fs.unlinkSync(itemPath); } catch (_) {}
+            }
+          }
+        }
+      } catch (_) {}
+
       if (this.client) {
         try {
           await this.client.destroy();
@@ -247,14 +261,27 @@ export class WhatsAppSessionEngine {
 
       await client.initialize();
     } catch (err: any) {
-      console.error('[WhatsApp Worker] Failed to initialize WhatsApp Web client:', err.message || err);
+      console.error(`[WhatsApp Worker (${this.userId})] Failed to initialize WhatsApp Web client:`, err.message || err);
       this.state = 'DISCONNECTED';
       if (this.pairingCodeWaiter) {
         clearTimeout(this.pairingCodeWaiter.timeout);
         this.pairingCodeWaiter.reject(new Error(err.message || 'Failed to initialize client'));
         this.pairingCodeWaiter = null;
       }
-      this.scheduleReconnect(5000);
+      try {
+        const authPath = this.getAuthPath();
+        const sessionPath = path.join(authPath, 'session');
+        if (fs.existsSync(sessionPath)) {
+          const lockItems = ['DevToolsActivePort', 'lockfile', 'SingletonLock', 'SingletonCookie', 'SingletonSocket'];
+          for (const item of lockItems) {
+            const itemPath = path.join(sessionPath, item);
+            if (fs.existsSync(itemPath)) {
+              try { fs.unlinkSync(itemPath); } catch (_) {}
+            }
+          }
+        }
+      } catch (_) {}
+      this.scheduleReconnect(8000);
     } finally {
       this.isConnecting = false;
     }

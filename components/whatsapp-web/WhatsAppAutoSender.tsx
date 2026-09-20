@@ -420,75 +420,75 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
         </div>
       </div>
 
-      {/* Transmission Logs */}
-      <div>
-        <h4 className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-2 flex items-center gap-1.5">
-          <ListFilter className="w-3.5 h-3.5 text-[#5722AF]" /> Real-time Dispatch Telemetry
-        </h4>
+      {/* Real-time Dispatch Table */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
+            <ListFilter className="w-3.5 h-3.5 text-[#5722AF]" />
+            Real-time Dispatch Telemetry ({logs.length})
+          </h4>
+          {logs.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setLogs([])}
+              className="text-[11px] text-zinc-400 hover:text-rose-600 transition"
+              title="Clear transmission logs"
+            >
+              Clear Logs
+            </button>
+          )}
+        </div>
 
-        {logs.length === 0 ? (
-          <div className="p-6 text-center text-xs text-zinc-400 bg-zinc-50/50 dark:bg-zinc-800/30 rounded-xl border border-zinc-200 dark:border-zinc-800">
-            Recipient dispatches from the active WhatsApp session will be logged here in real-time.
-          </div>
-        ) : (
-          <div className="divide-y divide-zinc-100 dark:divide-zinc-800 border border-zinc-200 dark:border-zinc-800 rounded-xl max-h-64 overflow-y-auto">
-            {logs.map(log => (
-              <div key={log.id} className="p-3 text-xs flex items-center justify-between hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
-                <div className="flex items-center gap-3">
-                  <span className="text-[10px] font-mono text-zinc-400">{log.timestamp}</span>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-zinc-900 dark:text-zinc-100">{log.contactName}</span>
-                      <span className="font-mono text-[11px] text-zinc-400">({log.phoneNumber})</span>
-                      {log.hasAttachment && (
-                        <span className="px-1.5 py-0.5 rounded bg-purple-100 text-[#5722AF] dark:bg-purple-950 dark:text-purple-300 text-[9px] font-bold">
-                          MEDIA
-                        </span>
-                      )}
-                      {log.messageId && (
-                        <span className="font-mono text-[9px] text-zinc-400">
-                          ID: {log.messageId.slice(0, 8)}...
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-zinc-500 text-[11px] line-clamp-1">{log.message}</p>
-                    {log.error && (
-                      <p className="text-rose-600 dark:text-rose-400 text-[10px] font-mono mt-0.5">
-                        Error: {log.error}
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0">
-                  {log.status === 'FAILED' && (
-                    <a
-                      href={WhatsAppSenderEngine.getDirectWhatsAppWebUrl(log.phoneNumber, log.message)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="px-2 py-1 text-[10px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 rounded-lg flex items-center gap-1 transition"
-                      title="Send manually via WhatsApp Web"
-                    >
-                      <ExternalLink className="w-3 h-3" />
-                      Open Chat
-                    </a>
-                  )}
-
-                  <span
-                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 ${
-                      log.status === 'SENT'
-                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                        : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
-                    }`}
-                  >
-                    {log.status === 'SENT' ? <CheckCircle2 className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
-                    {log.status}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        <div className="border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-x-auto overflow-y-auto max-h-64 scrollbar-thin scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-700 bg-white dark:bg-zinc-900/60">
+          {logs.length === 0 ? (
+            <div className="p-8 text-center text-xs text-zinc-400">
+              Recipient dispatches from the active WhatsApp session will be logged here in real-time.
+            </div>
+          ) : (
+            <table className="w-full text-left text-xs min-w-[420px]">
+              <thead className="bg-zinc-50 dark:bg-zinc-800/80 text-zinc-500 border-b border-zinc-200 dark:border-zinc-800 sticky top-0 z-10 backdrop-blur-xs">
+                <tr>
+                  <th className="py-2.5 px-3 min-w-[85px] font-semibold text-zinc-600 dark:text-zinc-300">Time</th>
+                  <th className="py-2.5 px-3 min-w-[130px] font-semibold text-zinc-600 dark:text-zinc-300">Name</th>
+                  <th className="py-2.5 px-3 min-w-[140px] font-semibold text-zinc-600 dark:text-zinc-300">Phone Number</th>
+                  <th className="py-2.5 px-3 min-w-[95px] text-right font-semibold text-zinc-600 dark:text-zinc-300">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                {logs.map(log => (
+                  <tr key={log.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors">
+                    <td className="py-2 px-3 text-zinc-400 font-mono text-[11px] whitespace-nowrap">
+                      {log.timestamp}
+                    </td>
+                    <td className="py-2 px-3 font-semibold text-zinc-800 dark:text-zinc-200 truncate max-w-[140px]">
+                      {log.contactName || '—'}
+                    </td>
+                    <td className="py-2 px-3 font-mono text-zinc-600 dark:text-zinc-300 whitespace-nowrap">
+                      {log.phoneNumber}
+                    </td>
+                    <td className="py-2 px-3 text-right whitespace-nowrap">
+                      <span
+                        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                          log.status === 'SENT'
+                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                            : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                        }`}
+                        title={log.error ? `Error: ${log.error}` : undefined}
+                      >
+                        {log.status === 'SENT' ? (
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                        ) : (
+                          <AlertCircle className="w-3 h-3 text-rose-600 dark:text-rose-400" />
+                        )}
+                        {log.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
       </div>
     </div>
   );
