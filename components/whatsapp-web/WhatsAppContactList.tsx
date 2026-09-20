@@ -104,34 +104,35 @@ export const WhatsAppContactList: React.FC<WhatsAppContactListProps> = ({
   return (
     <div className="bg-gradient-to-br from-white via-white to-zinc-50/80 dark:from-[#131620] dark:via-zinc-900 dark:to-zinc-900 rounded-2xl sm:rounded-3xl border border-zinc-200/90 dark:border-zinc-800 p-5 sm:p-6 shadow-xs space-y-4">
       {/* Header Bar */}
-      <div className="flex items-center justify-between gap-3 border-b border-zinc-100 dark:border-zinc-800 pb-4">
-        <div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-              <Users className="w-4 h-4 text-[#5722AF]" />
-              Audience Contacts ({contacts.length})
+      <div className="flex items-center justify-between gap-2 border-b border-zinc-100 dark:border-zinc-800 pb-3 sm:pb-4">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-xl bg-[#5722AF]/10 dark:bg-purple-950/40 text-[#5722AF] dark:text-purple-300 flex items-center justify-center shrink-0">
+            <Users className="w-4 h-4" />
+          </div>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <h3 className="text-sm sm:text-base font-bold text-zinc-900 dark:text-zinc-100 whitespace-nowrap">
+              Customer List ({contacts.length})
             </h3>
             {onOpenGuide && (
               <button
                 type="button"
                 onClick={onOpenGuide}
-                title="View Step 2 Audience Guide"
-                className="p-1 rounded-lg text-zinc-400 hover:text-[#5722AF] dark:hover:text-purple-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
+                title="View Guide"
+                className="p-1 rounded-lg text-zinc-400 hover:text-[#5722AF] dark:hover:text-purple-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer shrink-0"
               >
                 <HelpCircle className="w-4 h-4" />
               </button>
             )}
           </div>
-          <p className="text-xs text-zinc-500 mt-0.5">Build your target recipient audience for WhatsApp delivery.</p>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           <button
             type="button"
             onClick={() => setIsAddModalOpen(true)}
-            className="px-3.5 py-2 bg-[#5722AF] hover:bg-[#471a93] text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm hover:shadow transition cursor-pointer"
+            className="px-3 py-1.5 sm:px-3.5 sm:py-2 bg-[#5722AF] hover:bg-[#471a93] text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm hover:shadow transition cursor-pointer"
           >
-            <UserPlus className="w-4 h-4" />
+            <UserPlus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             <span>Add Customer</span>
           </button>
 
@@ -139,7 +140,7 @@ export const WhatsAppContactList: React.FC<WhatsAppContactListProps> = ({
             <button
               type="button"
               onClick={handleClearAll}
-              className="p-2 text-zinc-400 hover:text-rose-600 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition cursor-pointer"
+              className="p-1.5 sm:p-2 text-zinc-400 hover:text-rose-600 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition cursor-pointer shrink-0"
               title="Clear all contacts"
             >
               <Trash2 className="w-4 h-4" />
@@ -276,10 +277,10 @@ export const WhatsAppContactList: React.FC<WhatsAppContactListProps> = ({
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
-                    Add Customers &amp; Audience
+                    Add Customer Numbers
                   </h3>
                   <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                    Choose your preferred import method below
+                    Add contacts one by one, paste a list, or upload a file
                   </p>
                 </div>
               </div>
@@ -304,7 +305,7 @@ export const WhatsAppContactList: React.FC<WhatsAppContactListProps> = ({
                 }`}
               >
                 <UserPlus className="w-3.5 h-3.5" />
-                <span>Single</span>
+                <span>Single Contact</span>
               </button>
               <button
                 type="button"
@@ -316,7 +317,7 @@ export const WhatsAppContactList: React.FC<WhatsAppContactListProps> = ({
                 }`}
               >
                 <ClipboardList className="w-3.5 h-3.5" />
-                <span>Bulk Paste</span>
+                <span>Paste Numbers</span>
               </button>
               <button
                 type="button"
@@ -328,7 +329,7 @@ export const WhatsAppContactList: React.FC<WhatsAppContactListProps> = ({
                 }`}
               >
                 <Upload className="w-3.5 h-3.5" />
-                <span>CSV Upload</span>
+                <span>Upload File</span>
               </button>
               <button
                 type="button"
@@ -340,7 +341,7 @@ export const WhatsAppContactList: React.FC<WhatsAppContactListProps> = ({
                 }`}
               >
                 <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                <span>Sample</span>
+                <span>Sample Numbers</span>
               </button>
             </div>
 
@@ -542,10 +543,10 @@ export const WhatsAppContactList: React.FC<WhatsAppContactListProps> = ({
                   <div className="p-4 bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-2xl space-y-2">
                     <div className="flex items-center gap-2 text-amber-800 dark:text-amber-300 font-bold text-xs">
                       <Sparkles className="w-4 h-4" />
-                      <span>Instant Demo / Test Audience</span>
+                      <span>Test with Sample Numbers</span>
                     </div>
                     <p className="text-xs text-amber-700 dark:text-amber-400">
-                      Click below to load 3 verified sample contacts. This allows you to safely test message interpolation, personalization variables, and campaign dispatch without entering real numbers.
+                      Click below to load 3 sample contacts. This lets you quickly test how message sending works without typing real numbers.
                     </p>
                   </div>
 

@@ -176,41 +176,44 @@ export const WhatsAppMessageComposer: React.FC<WhatsAppMessageComposerProps> = (
 
   return (
     <div className="bg-gradient-to-br from-white via-white to-zinc-50/80 dark:from-[#131620] dark:via-zinc-900 dark:to-zinc-900 rounded-2xl sm:rounded-3xl border border-zinc-200/90 dark:border-zinc-800 p-5 sm:p-6 shadow-xs space-y-5">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-100 dark:border-zinc-800 pb-4">
-        <div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-              <MessageSquare className="w-4 h-4 text-[#5722AF]" />
-              Message &amp; Media Template
+      <div className="flex items-center justify-between gap-2 border-b border-zinc-100 dark:border-zinc-800 pb-3 sm:pb-4">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-xl bg-[#5722AF]/10 dark:bg-purple-950/40 text-[#5722AF] dark:text-purple-300 flex items-center justify-center shrink-0">
+            <MessageSquare className="w-4 h-4" />
+          </div>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <h3 className="text-sm sm:text-base font-bold text-zinc-900 dark:text-zinc-100 whitespace-nowrap">
+              Write Message
             </h3>
             {onOpenGuide && (
               <button
                 type="button"
                 onClick={onOpenGuide}
-                title="View Step 3 Message & Media Guide"
-                className="p-1 rounded-lg text-zinc-400 hover:text-[#5722AF] dark:hover:text-purple-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
+                title="View Guide"
+                className="p-1 rounded-lg text-zinc-400 hover:text-[#5722AF] dark:hover:text-purple-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer shrink-0"
               >
                 <HelpCircle className="w-4 h-4" />
               </button>
             )}
           </div>
-          <p className="text-xs text-zinc-500 mt-0.5">Compose text, attach media, and set safe delay.</p>
         </div>
 
         {/* Dynamic Variable Chips */}
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-[11px] font-semibold text-zinc-400">Insert:</span>
+        <div className="flex items-center gap-1.5 flex-wrap shrink-0">
+          <span className="text-[11px] font-semibold text-zinc-400 hidden sm:inline">Add Name:</span>
           <button
             type="button"
             onClick={() => insertVariable('{name}')}
-            className="px-2.5 py-1 bg-purple-50 dark:bg-purple-950 text-[#5722AF] dark:text-purple-300 rounded-lg text-xs font-mono font-bold hover:bg-purple-100 transition"
+            className="px-2.5 py-1 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/60 dark:hover:bg-purple-900 text-[#5722AF] dark:text-purple-300 rounded-lg text-xs font-mono font-bold transition cursor-pointer"
+            title="Click to insert customer's name"
           >
             {'{name}'}
           </button>
           <button
             type="button"
             onClick={() => insertVariable('{phone}')}
-            className="px-2.5 py-1 bg-purple-50 dark:bg-purple-950 text-[#5722AF] dark:text-purple-300 rounded-lg text-xs font-mono font-bold hover:bg-purple-100 transition"
+            className="px-2.5 py-1 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/60 dark:hover:bg-purple-900 text-[#5722AF] dark:text-purple-300 rounded-lg text-xs font-mono font-bold transition cursor-pointer"
+            title="Click to insert customer's phone number"
           >
             {'{phone}'}
           </button>
@@ -328,7 +331,7 @@ export const WhatsAppMessageComposer: React.FC<WhatsAppMessageComposerProps> = (
               </div>
             </div>
             <p className="text-[10px] text-zinc-500">
-              Configurable from 7 to 60 seconds. Guarantees safe pacing to protect your account from spam detection and allows WhatsApp Signal E2EE ratchets to synchronize across contacts.
+              Safe waiting time between 7 to 60 seconds. Pausing between messages protects your WhatsApp account from being blocked.
             </p>
           </div>
         </div>
@@ -336,7 +339,7 @@ export const WhatsAppMessageComposer: React.FC<WhatsAppMessageComposerProps> = (
         {/* Right Smartphone Chat Preview */}
         <div className="lg:col-span-5 bg-zinc-100 dark:bg-zinc-800/40 p-4 rounded-2xl border border-zinc-200 dark:border-zinc-700/70 flex flex-col justify-center items-center">
           <span className="text-[11px] font-semibold text-zinc-400 mb-2.5 flex items-center gap-1">
-            <Smartphone className="w-3.5 h-3.5" /> WhatsApp Message Bubble Preview
+            <Smartphone className="w-3.5 h-3.5" /> WhatsApp Message Preview
           </span>
 
           <div className="w-full max-w-xs bg-[#efeae2] dark:bg-[#0b141a] rounded-2xl shadow-md p-3 border border-zinc-300 dark:border-zinc-700">

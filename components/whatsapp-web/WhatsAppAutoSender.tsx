@@ -304,92 +304,66 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
 
   return (
     <div className="bg-gradient-to-br from-white via-white to-zinc-50/80 dark:from-[#131620] dark:via-zinc-900 dark:to-zinc-900 rounded-2xl sm:rounded-3xl border border-zinc-200/90 dark:border-zinc-800 p-5 sm:p-6 shadow-xs space-y-5">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-              <Radio className="w-4 h-4 text-[#5722AF]" />
-              Sequential Campaign Engine
+      <div className="flex items-center justify-between gap-2 border-b border-zinc-100 dark:border-zinc-800 pb-3 sm:pb-4">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-xl bg-[#5722AF]/10 dark:bg-purple-950/40 text-[#5722AF] dark:text-purple-300 flex items-center justify-center shrink-0">
+            <Send className="w-4 h-4" />
+          </div>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <h3 className="text-sm sm:text-base font-bold text-zinc-900 dark:text-zinc-100 whitespace-nowrap">
+              Send Messages
             </h3>
             {onOpenGuide && (
               <button
                 type="button"
                 onClick={onOpenGuide}
-                title="View Step 4 Dispatcher Guide"
-                className="p-1 rounded-lg text-zinc-400 hover:text-[#5722AF] dark:hover:text-purple-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
+                title="View Guide"
+                className="p-1 rounded-lg text-zinc-400 hover:text-[#5722AF] dark:hover:text-purple-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer shrink-0"
               >
                 <HelpCircle className="w-4 h-4" />
               </button>
             )}
           </div>
-          <p className="text-xs text-zinc-500 mt-0.5">
-            Automated rate-limited sequential message delivery.
-          </p>
         </div>
 
-        {/* Dispatch Mode Selector & Controls */}
-        <div className="flex items-center gap-2">
-          <div className="flex items-center hidden bg-zinc-100 dark:bg-zinc-800 p-1 rounded-xl border border-zinc-200 dark:border-zinc-700 text-xs">
-            <button
-              onClick={() => setDispatchMode('WORKER')}
-              className={`px-2.5 py-1 rounded-lg font-semibold transition ${
-                dispatchMode === 'WORKER'
-                  ? 'bg-white dark:bg-zinc-700 text-[#5722AF] dark:text-purple-300 shadow-xs'
-                  : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
-              }`}
-              title="Persistent Baileys socket on port 5001 / Cloud Worker"
-            >
-              Worker Daemon
-            </button>
-            <button
-              onClick={() => setDispatchMode('BROWSER_TABS')}
-              className={`px-2.5 py-1 rounded-lg hidden font-semibold transition ${
-                dispatchMode === 'BROWSER_TABS'
-                  ? 'bg-white dark:bg-zinc-700 text-[#5722AF] dark:text-purple-300 shadow-xs'
-                  : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
-              }`}
-              title="Universal fallback for Vercel/Shared hosting without a background daemon"
-            >
-              Browser Direct
-            </button>
-          </div>
-
+        {/* Dispatch Controls */}
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           {!isRunning ? (
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
                 onClick={resetAllStatuses}
-                className="px-3.5 py-2.5 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-semibold rounded-xl text-xs flex items-center gap-1.5 border border-zinc-200 dark:border-zinc-700 transition shadow-xs"
-                title="Reset all contacts status to PENDING so you can resend template to everyone"
+                className="px-3 py-1.5 sm:px-3.5 sm:py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-semibold rounded-xl text-xs flex items-center gap-1.5 border border-zinc-200 dark:border-zinc-700 transition shadow-xs cursor-pointer"
+                title="Reset so you can send to all contacts again"
               >
                 <Clock className="w-3.5 h-3.5 text-zinc-400" />
-                Reset List
+                <span>Reset</span>
               </button>
               <button
                 onClick={startCampaign}
-                className="px-6 py-2.5 bg-[#5722AF] hover:bg-[#471a93] text-white font-semibold rounded-xl text-xs flex items-center gap-2 shadow-md transition"
+                className="px-4 py-1.5 sm:px-5 sm:py-2 bg-[#5722AF] hover:bg-[#471a93] text-white font-semibold rounded-xl text-xs flex items-center gap-1.5 shadow-md transition cursor-pointer"
               >
-                <Play className="w-4 h-4" />
-                Start Campaign
+                <Play className="w-3.5 h-3.5" />
+                <span>Start Sending</span>
               </button>
             </div>
           ) : (
-            <>
+            <div className="flex items-center gap-1.5">
               <button
                 onClick={handlePauseResume}
-                className="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition"
+                className="px-3.5 py-1.5 sm:px-4 sm:py-2 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition cursor-pointer"
               >
                 <Pause className="w-3.5 h-3.5" />
-                {isPaused ? 'Resume' : 'Pause'}
+                <span>{isPaused ? 'Resume' : 'Pause'}</span>
               </button>
               <button
                 onClick={handleStop}
-                className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition"
+                className="px-3.5 py-1.5 sm:px-4 sm:py-2 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition cursor-pointer"
               >
                 <Square className="w-3.5 h-3.5" />
-                Stop
+                <span>Stop</span>
               </button>
-            </>
+            </div>
           )}
         </div>
       </div>
@@ -399,7 +373,7 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
         <div className="flex items-center justify-between text-xs font-semibold">
           <span className="text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
             {isRunning && <span className="w-2 h-2 rounded-full bg-[#5722AF] animate-ping" />}
-            {isRunning ? (isPaused ? 'Campaign Paused' : `Sending to ${contacts[currentIndex]?.name || 'next recipient'} (${contacts[currentIndex]?.phoneNumber})...`) : 'Ready to Launch'}
+            {isRunning ? (isPaused ? 'Sending Paused' : `Sending to ${contacts[currentIndex]?.name || 'customer'} (${contacts[currentIndex]?.phoneNumber})...`) : 'Ready to Send'}
           </span>
           <span className="font-mono text-zinc-600 dark:text-zinc-300">
             {sentCount} / {total} Sent ({progressPct}%)
@@ -414,8 +388,8 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
         </div>
 
         <div className="flex justify-between text-[11px] text-zinc-400 pt-1">
-          <span>Pending: {total - sentCount - failedCount}</span>
-          <span className="text-emerald-600 font-semibold">Delivered / Sent: {sentCount}</span>
+          <span>Remaining: {total - sentCount - failedCount}</span>
+          <span className="text-emerald-600 font-semibold">Sent: {sentCount}</span>
           <span className={failedCount > 0 ? 'text-rose-600 font-semibold' : ''}>Failed: {failedCount}</span>
         </div>
       </div>
@@ -425,7 +399,7 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
         <div className="flex items-center justify-between">
           <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
             <ListFilter className="w-3.5 h-3.5 text-[#5722AF]" />
-            Real-time Dispatch Telemetry ({logs.length})
+            Live Delivery Status ({logs.length})
           </h4>
           {logs.length > 0 && (
             <button
@@ -442,7 +416,7 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
         <div className="border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-x-auto overflow-y-auto max-h-64 scrollbar-thin scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-700 bg-white dark:bg-zinc-900/60">
           {logs.length === 0 ? (
             <div className="p-8 text-center text-xs text-zinc-400">
-              Recipient dispatches from the active WhatsApp session will be logged here in real-time.
+              Messages sent from your WhatsApp will appear here in real-time.
             </div>
           ) : (
             <table className="w-full text-left text-xs min-w-[420px]">

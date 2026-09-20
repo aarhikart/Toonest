@@ -27,32 +27,32 @@ const faqs: FAQItem[] = [
   {
     question: 'How do I connect my WhatsApp account?',
     answer:
-      'In Step 1, you can either scan the displayed QR Code directly using WhatsApp on your phone (Settings > Linked Devices > Link a Device), or switch to Phone Number Pairing to receive an instant 8-digit pairing code. Both methods establish a direct, official multi-device session.'
+      'In Step 1, open WhatsApp on your phone, tap Settings (or the 3 dots) > Linked Devices > Link a Device, and scan the QR code on your screen. You can also connect using your phone number to receive an 8-digit pairing code.'
   },
   {
-    question: 'How does the platform protect my account from getting banned?',
+    question: 'How does this keep my WhatsApp account safe?',
     answer:
-      'We incorporate strict anti-ban guardrails: (1) Customizable delay intervals (7 to 60 seconds) between messages to emulate human rhythm; (2) Dynamic name and phone personalization tags ({name}, {phone}) so every outgoing message has a unique payload; and (3) Built-in rate limiting to prevent spam flagging.'
+      'The platform protects your number in three ways: (1) Safe Delay: Pauses naturally between 7 and 60 seconds between each message, just like a human typing; (2) Personalized Names: Adding tags like {name} makes every message unique; and (3) Controlled Sending: Messages are sent smoothly one by one to prevent your number from getting flagged.'
   },
   {
-    question: 'Can multiple users share the same Worker Gateway URL at the same time?',
+    question: 'Can multiple users or team members use this at the same time?',
     answer:
-      'Yes! The platform includes full multi-tenant session isolation. Each user is assigned an isolated session ID on their browser. When multiple users connect to the same Gateway URL, their WhatsApp logins, QR codes, and campaigns run in separate isolated contexts without any session crosstalk.'
+      'Yes! Every user account is completely private and separate. When you log in, only your own WhatsApp is connected, your customer list stays in your account, and other users can never see or access your messages.'
   },
   {
-    question: 'What media files can I attach, and is there a size limit?',
+    question: 'Can I attach photos or documents to my messages?',
     answer:
-      'You can attach JPEG and PNG images or PDF documents. To ensure rapid delivery and prevent cloud payload limit errors, images are automatically optimized and compressed client-side directly in your browser before transmission.'
+      'Yes! You can attach JPG, PNG images, or PDF documents. Large photos are automatically compressed before sending so they deliver quickly and reliably to your customers.'
   },
   {
-    question: 'Can I pause, resume, or cancel a campaign while it is running?',
+    question: 'Can I pause or stop sending while a campaign is running?',
     answer:
-      'Yes. In Step 4 (Sequential Auto-Sender), you have instant Pause, Resume, and Stop controls. You can pause the campaign at any moment, review live telemetry, and resume whenever you are ready.'
+      'Yes. In Step 4, you can click Pause at any time to take a break or make changes, and click Resume or Stop whenever you are ready.'
   },
   {
-    question: 'Where is my audience contact list stored?',
+    question: 'Are my customer phone numbers private and secure?',
     answer:
-      'Your audience lists and message templates are saved locally on your device in your browser\'s localStorage. They are never exported or sold to third parties, preserving full confidentiality for your business contacts.'
+      'Yes, 100% private. Your customer contacts and message templates are stored locally on your own computer and browser. We never share, sell, or upload your contacts to any third parties.'
   }
 ];
 
@@ -66,26 +66,26 @@ export function WhatsAppInfoSections() {
   const steps = [
     {
       num: '01',
-      title: 'Link WhatsApp Device',
-      desc: 'Scan the secure QR Code or enter your phone number for an 8-digit pairing code via WhatsApp Linked Devices.',
+      title: 'Connect WhatsApp',
+      desc: 'Scan the QR code with WhatsApp on your phone (Linked Devices) or connect using your phone number.',
       icon: <QrCode className="w-5 h-5 text-[#5722AF] dark:text-[#9B6BE8]" />
     },
     {
       num: '02',
-      title: 'Import Audience Contacts',
-      desc: 'Upload a CSV spreadsheet or paste phone numbers with names. Automatic country code prefixes ensure accurate routing.',
+      title: 'Add Customer Numbers',
+      desc: 'Add numbers one by one, paste a list from Excel or WhatsApp, or upload a CSV file.',
       icon: <Users className="w-5 h-5 text-[#5722AF] dark:text-[#9B6BE8]" />
     },
     {
       num: '03',
-      title: 'Personalize & Attach Media',
-      desc: 'Compose your message with {name} and {phone} tags. Attach images or documents with browser auto-compression.',
+      title: 'Write Message & Photo',
+      desc: 'Write your message, add {name} to include customer names automatically, and attach photos or PDFs.',
       icon: <Sparkles className="w-5 h-5 text-[#5722AF] dark:text-[#9B6BE8]" />
     },
     {
       num: '04',
-      title: 'Automated Safe Dispatch',
-      desc: 'Run sequential campaign dispatching with configurable anti-ban delay timing and real-time live telemetry.',
+      title: 'Send Safely',
+      desc: 'Click Start Sending! Messages are delivered one by one with safe pauses between each message.',
       icon: <Send className="w-5 h-5 text-[#5722AF] dark:text-[#9B6BE8]" />
     }
   ];
@@ -98,13 +98,13 @@ export function WhatsAppInfoSections() {
           <div className="text-center max-w-xl mx-auto space-y-2">
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#5722AF]/10 text-[#5722AF] dark:bg-[#5722AF]/20 dark:text-purple-300 text-xs font-semibold">
               <Zap className="w-3.5 h-3.5" />
-              <span>Step-by-Step Workflow</span>
+              <span>Easy 4-Step Process</span>
             </div>
             <h2 className="text-2xl sm:text-3xl font-extrabold text-zinc-900 dark:text-white tracking-tight">
               How It Works
             </h2>
             <p className="text-xs sm:text-sm text-zinc-500 dark:text-zinc-400">
-              Follow 4 simple steps to connect, compose, and safely dispatch bulk WhatsApp messages to your audience.
+              Follow these 4 simple steps to connect, write, and safely send WhatsApp messages to your customers.
             </p>
           </div>
 
@@ -150,13 +150,13 @@ export function WhatsAppInfoSections() {
               <div className="space-y-1.5 flex-1">
                 <div className="inline-flex items-center gap-1.5 text-xs font-bold text-[#5722AF] dark:text-[#9B6BE8] uppercase tracking-wider">
                   <Lock className="w-3.5 h-3.5" />
-                  <span>Enterprise Session Privacy</span>
+                  <span>100% Private &amp; Secure</span>
                 </div>
                 <h2 className="text-xl sm:text-2xl font-bold text-zinc-900 dark:text-white">
                   Privacy &amp; Data Security
                 </h2>
                 <p className="text-xs sm:text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
-                  Your WhatsApp session, contact phone numbers, and messages are guarded by rigorous multi-tenant security architecture.
+                  Your WhatsApp account, customer phone numbers, and messages are completely private and stay in your control.
                 </p>
               </div>
             </div>
@@ -165,22 +165,22 @@ export function WhatsAppInfoSections() {
               <div className="flex items-start gap-2.5">
                 <EyeOff className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
                 <span className="text-zinc-600 dark:text-zinc-400">
-                  <strong className="text-zinc-900 dark:text-white block mb-0.5">Multi-Tenant Isolation</strong>
-                  Each account runs in a dedicated sandboxed session. Users never share credentials or WhatsApp connections.
+                  <strong className="text-zinc-900 dark:text-white block mb-0.5">Private User Accounts</strong>
+                  Each user gets their own dedicated session. No other user can ever see your WhatsApp, contacts, or messages.
                 </span>
               </div>
               <div className="flex items-start gap-2.5">
                 <Cpu className="w-4 h-4 text-[#5722AF] dark:text-[#9B6BE8] shrink-0 mt-0.5" />
                 <span className="text-zinc-600 dark:text-zinc-400">
-                  <strong className="text-zinc-900 dark:text-white block mb-0.5">Local Device Storage</strong>
-                  Audience lists and custom templates are stored locally in your browser's encrypted cache.
+                  <strong className="text-zinc-900 dark:text-white block mb-0.5">Safe on Your Computer</strong>
+                  Your customer contacts and message drafts are stored safely on your own computer and browser.
                 </span>
               </div>
               <div className="flex items-start gap-2.5">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
                 <span className="text-zinc-600 dark:text-zinc-400">
-                  <strong className="text-zinc-900 dark:text-white block mb-0.5">Direct Protocol Dispatch</strong>
-                  Messages are sent directly through official multi-device web sockets without third-party tracking.
+                  <strong className="text-zinc-900 dark:text-white block mb-0.5">Direct Message Delivery</strong>
+                  Messages are sent directly from your WhatsApp to your customer without any third-party middleman.
                 </span>
               </div>
             </div>
@@ -200,7 +200,7 @@ export function WhatsAppInfoSections() {
               Frequently Asked Questions
             </h2>
             <p className="text-xs sm:text-sm text-zinc-500 dark:text-zinc-400">
-              Everything you need to know about connecting, anti-ban safety, and bulk message dispatching.
+              Everything you need to know about connecting, account safety, and sending messages.
             </p>
           </div>
 

@@ -242,7 +242,7 @@ export default function WhatsAppMarketingPage() {
                 Sign in to WhatsApp Marketing Portal
               </h1>
               <p className="text-xs sm:text-sm text-zinc-600 dark:text-zinc-400">
-                Log in as an Administrator to manage client accounts and campaigns, or as a User to dispatch marketing messages.
+                Log in as an Administrator to manage client accounts, or as a User to send marketing messages.
               </p>
             </div>
 
@@ -302,15 +302,15 @@ export default function WhatsAppMarketingPage() {
                 <div className="space-y-1.5 max-w-2xl">
                   <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#5722AF]/10 text-[#5722AF] dark:bg-[#5722AF]/20 dark:text-purple-300 text-xs font-semibold">
                     <Zap className="w-3.5 h-3.5" />
-                    <span>WhatsApp Web Bulk Messaging</span>
+                    <span>Direct WhatsApp Marketing</span>
                   </div>
 
                   <h1 className="text-xl sm:text-2xl md:text-3xl font-extrabold text-zinc-900 dark:text-white tracking-tight">
-                    Campaign &amp; Message Studio
+                    Send WhatsApp Messages Easily
                   </h1>
 
                   <p className="text-xs sm:text-sm text-zinc-600 dark:text-zinc-400">
-                    Connect WhatsApp, import contacts, compose personalized templates with media, and dispatch campaigns safely.
+                    Connect your WhatsApp, add customer phone numbers, compose your message with photos or documents, and send to all your customers safely.
                   </p>
                 </div>
 
@@ -321,7 +321,7 @@ export default function WhatsAppMarketingPage() {
                     className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#5722AF] hover:bg-[#481c93] text-white text-xs font-semibold shadow-xs transition cursor-pointer"
                   >
                     <HelpCircle className="w-4 h-4" />
-                    <span>Interactive 4-Step Guide</span>
+                    <span>How It Works (4 Steps)</span>
                   </button>
                 </div>
               </div>
@@ -332,7 +332,7 @@ export default function WhatsAppMarketingPage() {
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#5722AF] dark:text-purple-400">
                   <span className="w-5 h-5 rounded-full bg-[#5722AF] text-white flex items-center justify-center text-[10px]">1</span>
-                  <span>Authentication &bull; Link WhatsApp Device</span>
+                  <span>Step 1 &bull; Connect WhatsApp</span>
                 </div>
                 <button
                   type="button"
@@ -358,7 +358,7 @@ export default function WhatsAppMarketingPage() {
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#5722AF] dark:text-purple-400">
                     <span className="w-5 h-5 rounded-full bg-[#5722AF] text-white flex items-center justify-center text-[10px]">2</span>
-                    <span>Audience &bull; Contact List</span>
+                    <span>Step 2 &bull; Customer List</span>
                   </div>
                   <button
                     type="button"
@@ -382,7 +382,7 @@ export default function WhatsAppMarketingPage() {
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#5722AF] dark:text-purple-400">
                     <span className="w-5 h-5 rounded-full bg-[#5722AF] text-white flex items-center justify-center text-[10px]">3</span>
-                    <span>Message &bull; Template &amp; Media</span>
+                    <span>Step 3 &bull; Write Message</span>
                   </div>
                   <button
                     type="button"
@@ -412,7 +412,7 @@ export default function WhatsAppMarketingPage() {
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#5722AF] dark:text-purple-400">
                   <span className="w-5 h-5 rounded-full bg-[#5722AF] text-white flex items-center justify-center text-[10px]">4</span>
-                  <span>Campaign &bull; Dispatch Engine</span>
+                  <span>Step 4 &bull; Send Messages</span>
                 </div>
                 <button
                   type="button"

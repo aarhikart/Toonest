@@ -293,52 +293,40 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
 
   return (
     <div className="bg-gradient-to-br from-white via-white to-zinc-50/80 dark:from-[#131620] dark:via-zinc-900 dark:to-zinc-900 rounded-2xl sm:rounded-3xl border border-zinc-200/90 dark:border-zinc-800 p-5 sm:p-6 shadow-xs space-y-5">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-100 dark:border-zinc-800 pb-4">
-        <div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <h2 className="text-base sm:text-lg font-bold text-zinc-900 dark:text-zinc-100">
-              WhatsApp Connection
+      <div className="flex items-center justify-between gap-2 border-b border-zinc-100 dark:border-zinc-800 pb-3 sm:pb-4">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-xl bg-[#5722AF]/10 dark:bg-purple-950/40 text-[#5722AF] dark:text-purple-300 flex items-center justify-center shrink-0">
+            <QrCode className="w-4 h-4" />
+          </div>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <h2 className="text-sm sm:text-base font-bold text-zinc-900 dark:text-zinc-100 whitespace-nowrap">
+              Connect WhatsApp
             </h2>
-
             {onOpenGuide && (
               <button
                 type="button"
                 onClick={onOpenGuide}
-                title="View Step 1 Connection Guide"
-                className="p-1 rounded-lg text-zinc-400 hover:text-[#5722AF] dark:hover:text-purple-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
+                title="View Guide"
+                className="p-1 rounded-lg text-zinc-400 hover:text-[#5722AF] dark:hover:text-purple-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer shrink-0"
               >
                 <HelpCircle className="w-4 h-4" />
               </button>
             )}
-
             <span
-              title={resolvedServiceUrl ? `Connected via Worker Gateway: ${resolvedServiceUrl}` : undefined}
-              className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${
+              className={`text-[10px] font-bold px-2 py-0.5 rounded-full hidden sm:inline-flex items-center gap-1 ${
                 isWorkerOnline
                   ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
                   : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
               }`}
             >
               <span className={`w-1.5 h-1.5 rounded-full ${isWorkerOnline ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
-              {isWorkerOnline ? 'Worker Online' : 'Worker Offline'}
+              {isWorkerOnline ? 'Online' : 'Offline'}
             </span>
-
-            {/* Cloud Worker URL Settings Trigger */}
-            <button
-              onClick={() => setShowConfig(!showConfig)}
-              className="p-1 text-zinc-400 hidden hover:text-[#5722AF] rounded-lg transition"
-              title="Configure Worker Gateway URL"
-            >
-              <Settings className="w-3.5 h-3.5" />
-            </button>
           </div>
-          <p className="text-xs text-zinc-500 mt-0.5">
-            Scan the QR code or link with your phone number to connect.
-          </p>
         </div>
 
         {/* Tab Selector */}
-        <div className="flex items-center bg-zinc-100 dark:bg-zinc-800 p-1 rounded-xl self-start sm:self-auto">
+        <div className="flex items-center bg-zinc-100 dark:bg-zinc-800 p-1 rounded-xl shrink-0">
           <button
             onClick={() => setActiveTab('QR')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
@@ -346,7 +334,7 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
             }`}
           >
             <QrCode className="w-3.5 h-3.5" />
-            QR Code
+            <span>Scan QR</span>
           </button>
           <button
             onClick={() => setActiveTab('PAIRING')}
@@ -355,7 +343,7 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
             }`}
           >
             <Smartphone className="w-3.5 h-3.5" />
-            Phone Pairing
+            <span>Phone Code</span>
           </button>
         </div>
       </div>
@@ -367,12 +355,12 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
             <div className="flex items-center gap-2">
               <Globe className="w-4 h-4 text-[#5722AF]" />
               <h4 className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
-                Persistent WhatsApp Worker Gateway (Vercel &amp; Hosting Setup)
+                WhatsApp Server Connection (Cloud &amp; Hosting Setup)
               </h4>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-[11px] text-zinc-500 font-mono">
-                Gateway: {workerUrl || 'Default (Port 5001)'}
+                Server: {workerUrl || 'Default (Port 5001)'}
               </span>
               <span className="text-[10px] px-2 py-0.5 rounded bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 font-mono font-semibold">
                 User: {effectiveUserId}
@@ -380,7 +368,7 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
             </div>
           </div>
           <p className="text-[11px] text-zinc-600 dark:text-zinc-400 leading-relaxed">
-            <strong>Multi-Tenant Gateway Active:</strong> Multiple users can share the same Worker Gateway URL without session conflicts. Each user has a completely isolated WhatsApp session, QR code, and campaign queue.
+            <strong>Multi-User Protection Active:</strong> Multiple users can safely use the same server at the same time. Each user has their own private WhatsApp connection, QR code, and message list without mixing.
           </p>
           <div className="flex gap-2">
             <input
@@ -406,9 +394,9 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
           <div className="flex items-start gap-2.5">
             <WifiOff className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
             <div>
-              <p className="font-semibold">Persistent WhatsApp Daemon is offline or unreachable.</p>
+              <p className="font-semibold">WhatsApp Server is currently offline or unreachable.</p>
               <p className="text-[11px] text-amber-700 dark:text-amber-300 mt-0.5">
-                If hosted on Vercel, click <strong>&quot;Configure Worker URL&quot;</strong> above to connect your VPS or public tunnel, or run <code className="font-mono bg-white/60 dark:bg-zinc-900/60 px-1 rounded">node dist/server.js</code> locally on port 5001.
+                If hosted online, click <strong>&quot;Configure Server URL&quot;</strong> above to connect your server or tunnel, or start the server locally.
               </p>
             </div>
           </div>
@@ -440,10 +428,10 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
                   <Loader2 className="w-8 h-8 text-[#5722AF] animate-spin" />
                   <div>
                     <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
-                      {isWorkerOnline ? 'Generating WhatsApp QR Code...' : 'Waiting for WhatsApp Worker...'}
+                      {isWorkerOnline ? 'Getting WhatsApp QR Code ready...' : 'Starting WhatsApp service...'}
                     </p>
                     <p className="text-[11px] text-zinc-500 mt-1">
-                      {isRestarting ? 'Wiping stale session & creating new handshake...' : (isWorkerOnline ? 'Establishing official Noise handshake' : 'Check Worker URL or start daemon')}
+                      {isRestarting ? 'Creating fresh QR code...' : (isWorkerOnline ? 'Preparing your WhatsApp connection...' : 'Connecting to WhatsApp service...')}
                     </p>
                   </div>
 
@@ -451,10 +439,10 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
                   {loadingTime >= 3 && (
                     <button
                       onClick={() => fetchStatus(true)}
-                      className="mt-2 px-3 py-1.5 bg-[#5722AF] hover:bg-[#471a93] text-white text-[11px] font-semibold rounded-lg flex items-center gap-1.5 shadow-xs transition animate-in fade-in"
+                      className="mt-2 px-3 py-1.5 bg-[#5722AF] hover:bg-[#471a93] text-white text-[11px] font-semibold rounded-lg flex items-center gap-1.5 shadow-xs transition animate-in fade-in cursor-pointer"
                     >
                       <RefreshCw className="w-3 h-3" />
-                      Force Regenerate QR
+                      Generate New QR
                     </button>
                   )}
                 </div>
@@ -463,7 +451,7 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
 
             <div className="flex items-center gap-2 text-[11px] text-zinc-500 mt-3">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span>Official WhatsApp Multi-Device Protocol</span>
+              <span>Secure WhatsApp Connection</span>
               <button
                 onClick={() => fetchStatus(true)}
                 disabled={isRestarting}

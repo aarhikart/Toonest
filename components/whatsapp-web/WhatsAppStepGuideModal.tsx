@@ -49,103 +49,103 @@ export const WhatsAppStepGuideModal: React.FC<WhatsAppStepGuideModalProps> = ({
     tips: string[];
   }> = {
     1: {
-      title: 'Step 1: Connect WhatsApp Account',
-      subtitle: 'Link your WhatsApp using QR Code or 8-Digit Pairing Code',
+      title: 'Step 1: Connect Your WhatsApp',
+      subtitle: 'Scan the QR code or use an 8-digit phone code to link your phone',
       icon: QrCode,
       accentColor: 'text-[#5722AF] bg-purple-50 dark:bg-purple-950/60 dark:text-purple-300',
       instructions: [
         {
-          title: 'Method A: QR Code Scan (Recommended)',
-          desc: 'Open WhatsApp on your mobile phone > Settings (or 3 dots) > Linked Devices > Link a Device > Scan the live QR Code shown on screen.'
+          title: 'Option 1: Scan QR Code (Fastest)',
+          desc: 'Open WhatsApp on your phone > Tap Settings (or 3 dots on top right) > Linked Devices > Link a Device > Point your camera at the QR code shown on screen.'
         },
         {
-          title: 'Method B: 8-Digit Phone Pairing',
-          desc: 'Switch to the "Phone Number" tab, enter your phone number with country code, and click "Get Pairing Code". Enter the 8-digit code on your phone when prompted.'
+          title: 'Option 2: Use Phone Pairing Code',
+          desc: 'Click the "Phone Code" tab, enter your WhatsApp phone number, and click "Get Pairing Code". Type the 8-digit code on your phone when prompted.'
         },
         {
-          title: 'Multi-Device Independence',
-          desc: 'Your phone does not need to stay online once connected. Messages dispatch directly through the multi-device worker session.'
+          title: 'Works Even When Phone is Offline',
+          desc: 'Once connected, your phone does not need to stay connected to Wi-Fi or mobile data. Messages send directly through your linked account.'
         }
       ],
       tips: [
-        'Each user logged in retains their own isolated session without crossing over.',
-        'If the QR code expires, click the refresh button to generate a brand-new code.',
-        'Use the "Delete Browser Data" button if you ever need to reset the connection completely.'
+        'Every user account is kept completely private and separate from others.',
+        'If the QR code expires, simply tap the refresh button to get a fresh code.',
+        'Use "Clear Session" if you ever want to log out or connect a different WhatsApp number.'
       ]
     },
     2: {
-      title: 'Step 2: Audience & Phone Numbers',
-      subtitle: 'Add and organize the contacts who will receive your campaign',
+      title: 'Step 2: Customer List',
+      subtitle: 'Add the phone numbers you want to send messages to',
       icon: Users,
       accentColor: 'text-blue-600 bg-blue-50 dark:bg-blue-950/60 dark:text-blue-300',
       instructions: [
         {
-          title: 'Import Option 1: CSV / Text File Upload',
-          desc: 'Click "CSV Upload" to import contacts. Supported format: First column for Name, second column for Phone Number.'
+          title: 'Option 1: Upload Excel or CSV File',
+          desc: 'Click "Upload File" to import contacts from Excel or CSV. Keep names in the first column and phone numbers in the second column.'
         },
         {
-          title: 'Import Option 2: Bulk Copy & Paste',
-          desc: 'Click "Bulk Paste" to paste a list of numbers from Excel or notepad (e.g. "Rohan, 9876543210" or one number per line).'
+          title: 'Option 2: Paste Phone Numbers',
+          desc: 'Click "Paste Numbers" to paste phone numbers directly from your notes or sheets (e.g. "Rahul, 9876543210" or one number per line).'
         },
         {
-          title: 'Automatic Country Code Formatting',
-          desc: 'Select your default country code (e.g. +91 India). 10-digit numbers without country codes are automatically formatted with the chosen dial code.'
+          title: 'Automatic Country Code',
+          desc: 'Select your default country code (e.g. +91 India). 10-digit numbers without a country code will be formatted automatically.'
         }
       ],
       tips: [
-        'You can delete individual contacts or click the trash icon to clear the entire list.',
-        'Numbers are automatically sanitized (spaces, dashes, and parentheses are removed).',
-        'Click "Load Sample" anytime to test the flow with demo contacts.'
+        'You can delete single contacts or tap the trash icon to clear the entire list.',
+        'Spaces, dashes, and brackets are automatically cleaned up from phone numbers.',
+        'Click "Sample Numbers" anytime to test how sending works before using real numbers.'
       ]
     },
     3: {
-      title: 'Step 3: Message Template & Media',
-      subtitle: 'Craft personalized messages with dynamic tags, images, and documents',
+      title: 'Step 3: Write Message',
+      subtitle: 'Type your message, personalize with customer names, and attach photos or PDFs',
       icon: MessageSquare,
       accentColor: 'text-amber-600 bg-amber-50 dark:bg-amber-950/60 dark:text-amber-300',
       instructions: [
         {
-          title: 'Personalization with Dynamic Tags',
-          desc: 'Insert {name} and {phone} tags into your message. Each recipient receives a customized message with their actual name.'
+          title: 'Add Customer Names Automatically',
+          desc: 'Click {name} in the message box. Each customer will automatically receive a message with their own real name.'
         },
         {
-          title: 'Smart Media Attachments (Images & PDFs)',
-          desc: 'Attach promotional images or PDF brochures. Images are automatically optimized for crisp display on WhatsApp without causing upload size errors.'
+          title: 'Attach Photos or PDF Files',
+          desc: 'Attach promotional images, banners, or PDF brochures. Images are optimized so they send quickly and look clear.'
         },
         {
-          title: 'Anti-Ban Delay Throttling',
-          desc: 'Adjust the interval slider between messages (7 to 60 seconds). Random micro-delays are added automatically to emulate human behavior and protect your number.'
+          title: 'Safe Waiting Time Between Messages',
+          desc: 'Adjust the slider between 7 to 60 seconds. Taking safe pauses between messages keeps your WhatsApp account safe and protected from bans.'
         }
       ],
       tips: [
-        'When attaching an image with text, the text is sent as a caption under the image.',
-        'Keep messages friendly and relevant to achieve higher engagement and response rates.',
-        'Check the live preview card on the right to see exactly how your message looks.'
+        'When attaching a photo with text, the text is automatically sent as the caption of the photo.',
+        'Keep messages friendly, clear, and relevant so your customers enjoy reading them.',
+        'Look at the WhatsApp Message Preview on the right to see exactly how your message will look.'
       ]
     },
     4: {
-      title: 'Step 4: Dispatch Campaign & Telemetry',
-      subtitle: 'Start sequential message delivery with real-time tracking',
+      title: 'Step 4: Send Messages',
+      subtitle: 'Send your messages safely and track live delivery status',
       icon: Send,
       accentColor: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 dark:text-emerald-300',
       instructions: [
         {
-          title: 'Sequential Message Dispatch',
-          desc: 'Click "Start Campaign" to begin dispatching. Contacts are processed one by one in safe rate-limited intervals.'
+          title: 'Start Sending One by One',
+          desc: 'Click "Start Sending" to begin. Your messages will go out to each contact safely one after another with your selected delay.'
         },
         {
-          title: 'Pause, Resume & Stop Controls',
-          desc: 'You can pause the campaign at any moment to adjust templates, and resume or stop whenever desired.'
+          title: 'Pause or Stop Anytime',
+          desc: 'You can pause sending at any time to make changes, and resume or stop whenever you like.'
         },
         {
-          title: 'Real-Time Telemetry & Automatic Cloud Recording',
-          desc: 'Inspect live status for each recipient (SENT or FAILED). Completed campaign metrics and logs are automatically stored in MongoDB for administrative tracking.'
+          title: 'Live Delivery Updates',
+          desc: 'Watch each message show as SENT or FAILED in real time. Your finished campaign results are automatically saved in your history.'
         }
       ],
       tips: [
-        'The dispatcher automatically retries temporary network timeouts to ensure high delivery rates.',
-        'Review the progress bar to monitor completion percentage in real time.',
-        'Past campaigns can be reviewed anytime via the "Past Campaigns" drawer.'
+        'If there is a temporary network glitch, the system retries automatically to deliver your message.',
+        'Check the progress bar to see how many messages have finished sending.',
+        'You can look back at past results anytime by clicking "Past Campaigns".'
       ]
     }
   };

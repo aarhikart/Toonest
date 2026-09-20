@@ -142,7 +142,7 @@ export const WhatsAppUserBar: React.FC<WhatsAppUserBarProps> = ({
                   <Layers className="w-10 h-10 text-zinc-300 dark:text-zinc-700 mx-auto" />
                   <p>You haven't run any campaigns yet.</p>
                   <p className="text-[11px] text-zinc-500">
-                    Once you start sending messages, your dispatch statistics will appear here.
+                    Once you start sending messages, your delivery history will appear here.
                   </p>
                 </div>
               ) : (

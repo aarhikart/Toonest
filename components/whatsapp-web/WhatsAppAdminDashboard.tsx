@@ -682,7 +682,7 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
             <Layers className="w-4 h-4 text-blue-600 dark:text-blue-400" />
           </div>
           <div className="text-2xl font-bold text-zinc-900 dark:text-white">{totalCampaigns}</div>
-          <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1">Dispatched across all users</p>
+          <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1">Sent across all users</p>
         </div>
 
         {/* Metric 3: Successful Messages */}
@@ -796,7 +796,7 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
                 <Users className="w-12 h-12 text-zinc-300 dark:text-zinc-700 mx-auto mb-3" />
                 <h3 className="text-base font-semibold text-zinc-800 dark:text-zinc-200">No Users Created Yet</h3>
                 <p className="text-xs text-zinc-500 dark:text-zinc-400 max-w-sm mx-auto mt-1 mb-4">
-                  Create your first user account so your clients or team members can log in and dispatch campaigns.
+                  Create your first user account so your clients or team members can log in and send messages.
                 </p>
                 <button
                   onClick={() => setIsCreateModalOpen(true)}
@@ -920,7 +920,7 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
                   <tr>
                     <th className="px-4 py-3">User &amp; Business</th>
                     <th className="px-4 py-3">Campaign Name</th>
-                    <th className="px-4 py-3">Date Dispatched</th>
+                    <th className="px-4 py-3">Date Sent</th>
                     <th className="px-4 py-3 text-center">Contacts</th>
                     <th className="px-4 py-3 text-center">Successful</th>
                     <th className="px-4 py-3 text-center">Failed</th>
