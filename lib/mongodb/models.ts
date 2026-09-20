@@ -12,13 +12,13 @@ export interface IUser extends Document {
 
 const UserSchema = new Schema<IUser>({
   username: { type: String, required: true, unique: true, index: true, lowercase: true, trim: true },
-  password: { type: String, required: true },
-  businessName: { type: String, required: true, trim: true },
-  phoneNumber: { type: String, required: true, trim: true },
-  role: { type: String, default: 'user', enum: ['admin', 'user'] },
+  password: { type: String },
+  businessName: { type: String, default: 'ToolNest Business', trim: true },
+  phoneNumber: { type: String, default: '', trim: true },
+  role: { type: String, default: 'user' },
   status: { type: String, default: 'active', enum: ['active', 'inactive'] },
   createdAt: { type: Date, default: Date.now }
-});
+}, { strict: false });
 
 export interface ICampaignLog {
   id?: string;

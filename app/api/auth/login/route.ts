@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb/client';
 import { User } from '@/lib/mongodb/models';
 import {
@@ -44,8 +44,8 @@ export async function POST(req: NextRequest) {
         user: {
           id: admin._id.toString(),
           username: admin.username,
-          businessName: admin.businessName,
-          phoneNumber: admin.phoneNumber,
+          businessName: admin.businessName || 'ToolNest Master Admin',
+          phoneNumber: admin.phoneNumber || '+916263481054',
           role: 'admin',
           status: 'active'
         }
@@ -132,8 +132,22 @@ export async function POST(req: NextRequest) {
     return response;
   } catch (err: any) {
     console.error('[Auth Login Error]:', err);
+
+    let message = err.message || 'Internal server error during authentication.';
+    if (!process.env.MONGODB_URI) {
+      message = 'Database configuration missing: MONGODB_URI is not set in environment variables.';
+    } else if (
+      err.name === 'MongooseServerSelectionError' ||
+      err.name === 'MongoServerSelectionError' ||
+      err.message?.includes('buffering timed out') ||
+      err.message?.includes('ETIMEDOUT') ||
+      err.message?.includes('ECONNREFUSED')
+    ) {
+      message = 'Could not connect to MongoDB database. Please ensure MongoDB Atlas Network Access allows connections (0.0.0.0/0).';
+    }
+
     return NextResponse.json(
-      { success: false, error: 'Internal server error during authentication.' },
+      { success: false, error: message },
       { status: 500 }
     );
   }

@@ -1,4 +1,4 @@
-﻿import crypto from 'crypto';
+import crypto from 'crypto';
 import { cookies } from 'next/headers';
 import { NextRequest } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb/client';
@@ -54,6 +54,25 @@ export async function ensureAdminAccount(): Promise<IUser> {
       status: 'active'
     });
     console.log('[MongoDB] Master admin account created:', ADMIN_USERNAME);
+  } else {
+    let needsUpdate = false;
+    if (admin.status !== 'active') {
+      admin.status = 'active';
+      needsUpdate = true;
+    }
+    if (!admin.businessName) {
+      admin.businessName = 'ToolNest Master Admin';
+      needsUpdate = true;
+    }
+    if (!admin.phoneNumber) {
+      admin.phoneNumber = '+916263481054';
+      needsUpdate = true;
+    }
+    if (needsUpdate) {
+      try {
+        await admin.save();
+      } catch {}
+    }
   }
   return admin;
 }
@@ -91,15 +110,18 @@ export async function getSessionUser(req?: NextRequest): Promise<SessionUser | n
 
     await connectToDatabase();
     const user = await User.findById(payload.id);
-    if (!user || user.status !== 'active') return null;
+    if (!user) return null;
+
+    const isActive = user.status === 'active' || user.role === 'admin' || !user.status;
+    if (!isActive) return null;
 
     return {
       id: user._id.toString(),
       username: user.username,
-      businessName: user.businessName,
-      phoneNumber: user.phoneNumber,
-      role: user.role,
-      status: user.status
+      businessName: user.businessName || 'ToolNest Business',
+      phoneNumber: user.phoneNumber || '',
+      role: (user.role as any) === 'admin' ? 'admin' : 'user',
+      status: (user.status as any) || 'active'
     };
   } catch (_) {
     return null;
