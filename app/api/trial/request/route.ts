@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
     const phone10 = cleanPhone.slice(-10);
     const phoneRegex = new RegExp(phone10);
 
-    // 1. Check if user already exists with an active trial or account on this phone number
+    // 1. Check if an active account exists in the User collection
     const existingUser = await User.findOne({
       phoneNumber: { $regex: phoneRegex }
     });
@@ -57,23 +57,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2. Check if there is already an approved trial request for this phone number
-    const approvedTrial = await TrialRequest.findOne({
-      phoneNumber: { $regex: phoneRegex },
-      status: 'approved'
-    });
-
-    if (approvedTrial) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Already your plan is active. Please check your WhatsApp for your login details.'
-        },
-        { status: 400 }
-      );
-    }
-
-    // 3. Check if there is already a pending trial request for this phone number
+    // 2. Check if there is already a pending trial request waiting for admin approval
     const pendingTrial = await TrialRequest.findOne({
       phoneNumber: { $regex: phoneRegex },
       status: 'pending'
@@ -88,6 +72,12 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+
+    // 3. Since existingUser is null (user was deleted by admin or is brand new),
+    // clean up any old trial records for this phone number so they can start fresh
+    await TrialRequest.deleteMany({
+      phoneNumber: { $regex: phoneRegex }
+    });
 
     await TrialRequest.create({
       businessName: businessName.trim(),

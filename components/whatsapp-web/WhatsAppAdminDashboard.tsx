@@ -674,6 +674,7 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
       if (data.success) {
         setUsers(prev => prev.filter(u => u.id !== user.id));
         fetchCampaigns(selectedUserFilter);
+        fetchTrialRequests();
       } else {
         alert(data.error || 'Failed to delete user.');
       }
