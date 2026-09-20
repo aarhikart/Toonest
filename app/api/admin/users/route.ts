@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb/client';
 import { User, Campaign } from '@/lib/mongodb/models';
 import { getSessionUser, hashPassword } from '@/lib/auth/session';
@@ -25,12 +25,32 @@ export async function GET(req: NextRequest) {
         const totalSuccessful = campaigns.reduce((acc, c: any) => acc + (c.successfulMessages || 0), 0);
         const totalFailed = campaigns.reduce((acc, c: any) => acc + (c.failedMessages || 0), 0);
 
+        const now = Date.now();
+        let daysRemaining: number | null = null;
+        let isExpired = false;
+
+        if (u.subscriptionType === 'paid' && u.planEndDate) {
+          const endMs = new Date(u.planEndDate).getTime();
+          daysRemaining = Math.max(0, Math.ceil((endMs - now) / (1000 * 60 * 60 * 24)));
+          isExpired = endMs <= now;
+        } else if (u.subscriptionType === 'trial' && u.trialEndDate) {
+          const endMs = new Date(u.trialEndDate).getTime();
+          daysRemaining = Math.max(0, Math.ceil((endMs - now) / (1000 * 60 * 60 * 24)));
+          isExpired = endMs <= now;
+        }
+
         return {
           id: u._id.toString(),
           businessName: u.businessName,
           username: u.username,
           phoneNumber: u.phoneNumber,
           status: u.status,
+          subscriptionType: u.subscriptionType || 'none',
+          planType: u.planType || null,
+          trialEndDate: u.trialEndDate || null,
+          planEndDate: u.planEndDate || null,
+          daysRemaining,
+          isExpired,
           createdAt: u.createdAt,
           campaignsCount: totalCampaigns,
           successfulMessages: totalSuccessful,

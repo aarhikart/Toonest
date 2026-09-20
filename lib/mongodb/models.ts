@@ -7,6 +7,14 @@ export interface IUser extends Document {
   phoneNumber: string;
   role: 'admin' | 'user';
   status: 'active' | 'inactive';
+  subscriptionType: 'trial' | 'paid' | 'none';
+  planType?: '1_month' | '3_months' | '6_months' | null;
+  trialStartDate?: Date;
+  trialEndDate?: Date;
+  planStartDate?: Date;
+  planEndDate?: Date;
+  trialReminderSent?: boolean;
+  paidReminderSent?: boolean;
   createdAt: Date;
 }
 
@@ -17,6 +25,14 @@ const UserSchema = new Schema<IUser>({
   phoneNumber: { type: String, default: '', trim: true },
   role: { type: String, default: 'user' },
   status: { type: String, default: 'active', enum: ['active', 'inactive'] },
+  subscriptionType: { type: String, default: 'none', enum: ['trial', 'paid', 'none'] },
+  planType: { type: String, default: null },
+  trialStartDate: { type: Date },
+  trialEndDate: { type: Date },
+  planStartDate: { type: Date },
+  planEndDate: { type: Date },
+  trialReminderSent: { type: Boolean, default: false },
+  paidReminderSent: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now }
 }, { strict: false });
 
@@ -80,6 +96,54 @@ const SystemSettingSchema = new Schema<ISystemSetting>({
   updatedAt: { type: Date, default: Date.now }
 });
 
+export interface ITrialRequest extends Document {
+  businessName: string;
+  phoneNumber: string;
+  status: 'pending' | 'approved' | 'rejected';
+  assignedUsername?: string;
+  assignedPassword?: string;
+  createdAt: Date;
+  approvedAt?: Date;
+}
+
+const TrialRequestSchema = new Schema<ITrialRequest>({
+  businessName: { type: String, required: true, trim: true },
+  phoneNumber: { type: String, required: true, trim: true },
+  status: { type: String, default: 'pending', enum: ['pending', 'approved', 'rejected'] },
+  assignedUsername: { type: String },
+  assignedPassword: { type: String },
+  createdAt: { type: Date, default: Date.now },
+  approvedAt: { type: Date }
+});
+
+export interface IRenewalRequest extends Document {
+  userId?: mongoose.Types.ObjectId;
+  username: string;
+  businessName: string;
+  phoneNumber: string;
+  planType: '1_month' | '3_months' | '6_months';
+  amount: number;
+  transactionId: string;
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: Date;
+  approvedAt?: Date;
+}
+
+const RenewalRequestSchema = new Schema<IRenewalRequest>({
+  userId: { type: Schema.Types.ObjectId, ref: 'User' },
+  username: { type: String, required: true, trim: true },
+  businessName: { type: String, default: '', trim: true },
+  phoneNumber: { type: String, default: '', trim: true },
+  planType: { type: String, required: true, enum: ['1_month', '3_months', '6_months'] },
+  amount: { type: Number, required: true },
+  transactionId: { type: String, required: true, trim: true },
+  status: { type: String, default: 'pending', enum: ['pending', 'approved', 'rejected'] },
+  createdAt: { type: Date, default: Date.now },
+  approvedAt: { type: Date }
+});
+
 export const User = models.User || model<IUser>('User', UserSchema);
 export const Campaign = models.Campaign || model<ICampaign>('Campaign', CampaignSchema);
 export const SystemSetting = models.SystemSetting || model<ISystemSetting>('SystemSetting', SystemSettingSchema);
+export const TrialRequest = models.TrialRequest || model<ITrialRequest>('TrialRequest', TrialRequestSchema);
+export const RenewalRequest = models.RenewalRequest || model<IRenewalRequest>('RenewalRequest', RenewalRequestSchema);

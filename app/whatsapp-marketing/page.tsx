@@ -16,7 +16,8 @@ import {
   HelpCircle,
   Radio,
   Server,
-  Loader2
+  Loader2,
+  Gift
 } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
@@ -32,6 +33,9 @@ import { WhatsAppAdminDashboard } from '@/components/whatsapp-web/WhatsAppAdminD
 import { WhatsAppUserBar } from '@/components/whatsapp-web/WhatsAppUserBar';
 import { WhatsAppStepGuideModal } from '@/components/whatsapp-web/WhatsAppStepGuideModal';
 import { WhatsAppInfoSections } from '@/components/whatsapp-web/WhatsAppInfoSections';
+import { WhatsAppTrialPopupModal } from '@/components/whatsapp-web/WhatsAppTrialPopupModal';
+import { WhatsAppPlansModal } from '@/components/whatsapp-web/WhatsAppPlansModal';
+import { WhatsAppRenewalModal } from '@/components/whatsapp-web/WhatsAppRenewalModal';
 
 interface CurrentUser {
   id: string;
@@ -40,10 +44,20 @@ interface CurrentUser {
   phoneNumber: string;
   role: 'admin' | 'user';
   status: string;
+  subscriptionType?: 'trial' | 'paid' | 'none';
+  planType?: '1_month' | '3_months' | '6_months' | null;
+  daysRemaining?: number | null;
+  isExpired?: boolean;
 }
 
 export default function WhatsAppMarketingPage() {
   const [activeGuideStep, setActiveGuideStep] = useState<number | null>(null);
+
+  // Modal States
+  const [isTrialPopupOpen, setIsTrialPopupOpen] = useState(false);
+  const [isPlansModalOpen, setIsPlansModalOpen] = useState(false);
+  const [isRenewalModalOpen, setIsRenewalModalOpen] = useState(false);
+  const [renewalInitialPlan, setRenewalInitialPlan] = useState<'1_month' | '3_months' | '6_months'>('1_month');
 
   // Authentication State
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
@@ -128,6 +142,23 @@ export default function WhatsAppMarketingPage() {
       }
     } catch {}
   }, []);
+
+  // 3-Second Free Trial Popup for new visitors
+  useEffect(() => {
+    if (isAuthLoading) return;
+    if (currentUser) return;
+
+    try {
+      const alreadySubmitted = localStorage.getItem('toolnest_trial_requested');
+      if (alreadySubmitted) return;
+    } catch {}
+
+    const timer = setTimeout(() => {
+      setIsTrialPopupOpen(true);
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [isAuthLoading, currentUser]);
 
   const handleLogout = async () => {
     try {
@@ -244,6 +275,24 @@ export default function WhatsAppMarketingPage() {
               <p className="text-xs sm:text-sm text-zinc-600 dark:text-zinc-400">
                 Log in as an Administrator to manage client accounts, or as a User to send marketing messages.
               </p>
+              <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsTrialPopupOpen(true)}
+                  className="px-4 py-2 rounded-xl bg-[#5722AF] hover:bg-[#471a93] text-white text-xs font-semibold inline-flex items-center gap-1.5 transition shadow-2xs cursor-pointer"
+                >
+                  <Gift className="w-3.5 h-3.5" />
+                  <span>Claim 10-Day Free Trial</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsPlansModalOpen(true)}
+                  className="px-4 py-2 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                  <span>View All Plans</span>
+                </button>
+              </div>
             </div>
 
             <WhatsAppAuthModal
@@ -279,6 +328,7 @@ export default function WhatsAppMarketingPage() {
         ) : currentUser.role === 'admin' && adminViewMode === 'admin_center' ? (
           /* View B: Admin Dashboard */
           <WhatsAppAdminDashboard
+            adminUser={currentUser}
             onLogout={handleLogout}
             onOpenSenderStudio={() => setAdminViewMode('sender_studio')}
           />
@@ -292,6 +342,11 @@ export default function WhatsAppMarketingPage() {
               onOpenAdminCenter={
                 currentUser.role === 'admin' ? () => setAdminViewMode('admin_center') : undefined
               }
+              onOpenRenewalModal={plan => {
+                if (plan) setRenewalInitialPlan(plan);
+                setIsRenewalModalOpen(true);
+              }}
+              onOpenPlansModal={() => setIsPlansModalOpen(true)}
             />
 
             {/* Hero Section */}
@@ -314,7 +369,15 @@ export default function WhatsAppMarketingPage() {
                   </p>
                 </div>
 
-                <div className="flex items-center gap-2 self-start md:self-auto shrink-0">
+                <div className="flex flex-wrap items-center gap-2 self-start md:self-auto shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setIsPlansModalOpen(true)}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/30 hover:bg-purple-100 dark:hover:bg-purple-900/50 text-[#5722AF] dark:text-purple-300 text-xs font-semibold transition cursor-pointer"
+                  >
+                    <Sparkles className="w-4 h-4 text-amber-500" />
+                    <span>View Plans</span>
+                  </button>
                   <button
                     type="button"
                     onClick={() => setActiveGuideStep(1)}
@@ -447,6 +510,41 @@ export default function WhatsAppMarketingPage() {
           onClose={() => setActiveGuideStep(null)}
           onSelectStep={setActiveGuideStep}
         />
+
+        {/* 10-Day Free Trial Popup Modal */}
+        <WhatsAppTrialPopupModal
+          isOpen={isTrialPopupOpen}
+          onClose={() => setIsTrialPopupOpen(false)}
+        />
+
+        {/* View Plans Modal */}
+        <WhatsAppPlansModal
+          isOpen={isPlansModalOpen}
+          onClose={() => setIsPlansModalOpen(false)}
+          isLoggedIn={!!currentUser}
+          onSelectPlan={planKey => {
+            setIsPlansModalOpen(false);
+            setRenewalInitialPlan(planKey);
+            setIsRenewalModalOpen(true);
+          }}
+          onRequestTrial={() => {
+            setIsPlansModalOpen(false);
+            setIsTrialPopupOpen(true);
+          }}
+        />
+
+        {/* Plan Renewal & Payment Modal */}
+        {currentUser && (
+          <WhatsAppRenewalModal
+            isOpen={isRenewalModalOpen}
+            onClose={() => setIsRenewalModalOpen(false)}
+            currentUser={currentUser}
+            initialPlan={renewalInitialPlan}
+            onRenewalSubmitted={() => {
+              checkAuth();
+            }}
+          />
+        )}
       </main>
 
       <Footer hideToolsList={true} />

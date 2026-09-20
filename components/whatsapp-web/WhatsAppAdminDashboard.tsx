@@ -31,8 +31,15 @@ import {
   Loader2,
   Check,
   Zap,
-  Copy
+  Copy,
+  Gift,
+  CreditCard,
+  Sparkles,
+  Smartphone
 } from 'lucide-react';
+import { WhatsAppWebConnect } from './WhatsAppWebConnect';
+import { WhatsAppSessionManager } from '@/lib/whatsapp-web/session';
+import { WhatsAppWebSession } from '@/lib/whatsapp-web/types';
 
 interface ManagedUser {
   id: string;
@@ -40,10 +47,40 @@ interface ManagedUser {
   username: string;
   phoneNumber: string;
   status: 'active' | 'inactive';
+  subscriptionType?: 'trial' | 'paid' | 'none';
+  planType?: '1_month' | '3_months' | '6_months' | null;
+  trialEndDate?: string | null;
+  planEndDate?: string | null;
+  daysRemaining?: number | null;
+  isExpired?: boolean;
   createdAt: string;
   campaignsCount: number;
   successfulMessages: number;
   failedMessages: number;
+}
+
+interface TrialRequestItem {
+  id: string;
+  businessName: string;
+  phoneNumber: string;
+  status: 'pending' | 'approved' | 'rejected';
+  assignedUsername?: string;
+  createdAt: string;
+  approvedAt?: string;
+}
+
+interface RenewalRequestItem {
+  id: string;
+  userId?: string | null;
+  username: string;
+  businessName: string;
+  phoneNumber: string;
+  planType: '1_month' | '3_months' | '6_months';
+  amount: number;
+  transactionId: string;
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: string;
+  approvedAt?: string;
 }
 
 interface CampaignItem {
@@ -64,18 +101,50 @@ interface CampaignItem {
 interface WhatsAppAdminDashboardProps {
   onLogout: () => void;
   onOpenSenderStudio: () => void;
+  adminUser?: {
+    id?: string;
+    username: string;
+    businessName?: string;
+    phoneNumber?: string;
+    role?: string;
+    [key: string]: any;
+  } | null;
 }
 
 export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
   onLogout,
-  onOpenSenderStudio
+  onOpenSenderStudio,
+  adminUser
 }) => {
-  const [activeTab, setActiveTab] = useState<'users' | 'campaigns'>('users');
+  const adminUid = (adminUser?.username || 'hitesh1720').toLowerCase();
+  const [activeTab, setActiveTab] = useState<'users' | 'campaigns' | 'trials' | 'renewals'>('users');
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [campaigns, setCampaigns] = useState<CampaignItem[]>([]);
   const [campaignSummary, setCampaignSummary] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedUserFilter, setSelectedUserFilter] = useState<string>('all');
+
+  // Admin WhatsApp Session & Connect Modal State
+  const [adminSession, setAdminSession] = useState<WhatsAppWebSession>(() =>
+    WhatsAppSessionManager.getSession(adminUid)
+  );
+  const [isWaConnectModalOpen, setIsWaConnectModalOpen] = useState(false);
+  const [pendingTrialForApproval, setPendingTrialForApproval] = useState<TrialRequestItem | null>(null);
+  const [isCheckingWa, setIsCheckingWa] = useState(false);
+
+  // Trial Requests State
+  const [trialRequests, setTrialRequests] = useState<TrialRequestItem[]>([]);
+  const [approvingTrialId, setApprovingTrialId] = useState<string | null>(null);
+
+  // Plan Renewals State
+  const [renewalRequests, setRenewalRequests] = useState<RenewalRequestItem[]>([]);
+  const [approvingRenewalId, setApprovingRenewalId] = useState<string | null>(null);
+
+  // Plan Activation Modal State
+  const [planActivationUser, setPlanActivationUser] = useState<ManagedUser | null>(null);
+  const [selectedPlanToActivate, setSelectedPlanToActivate] = useState<'1_month' | '3_months' | '6_months'>('1_month');
+  const [isActivatingPlan, setIsActivatingPlan] = useState(false);
+  const [planActivationMsg, setPlanActivationMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Worker Gateway Management State
   const [gatewayUrl, setGatewayUrl] = useState<string>('');
@@ -264,10 +333,240 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
     }
   };
 
+  const fetchTrialRequests = async () => {
+    try {
+      const res = await fetch('/api/admin/trial');
+      const data = await res.json();
+      if (data.success) {
+        setTrialRequests(data.requests || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch trial requests:', err);
+    }
+  };
+
+  const fetchRenewalRequests = async () => {
+    try {
+      const res = await fetch('/api/admin/subscriptions/renewals');
+      const data = await res.json();
+      if (data.success) {
+        setRenewalRequests(data.renewals || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch renewal requests:', err);
+    }
+  };
+
+  const triggerReminderCheck = async () => {
+    try {
+      await fetch('/api/admin/subscriptions/check-reminders');
+    } catch (err) {
+      console.error('Failed to trigger reminder check:', err);
+    }
+  };
+
   const loadAllData = async () => {
     setIsLoading(true);
-    await Promise.all([fetchUsers(), fetchCampaigns(selectedUserFilter), fetchGatewayInfo()]);
+    await Promise.all([
+      fetchUsers(),
+      fetchCampaigns(selectedUserFilter),
+      fetchGatewayInfo(),
+      fetchTrialRequests(),
+      fetchRenewalRequests(),
+      triggerReminderCheck()
+    ]);
     setIsLoading(false);
+  };
+
+  const checkAdminWhatsAppConnected = async (uid: string): Promise<boolean> => {
+    try {
+      const res = await fetch('/api/whatsapp-service/status', {
+        headers: { 'x-user-id': uid.toLowerCase() },
+        cache: 'no-store'
+      });
+      if (!res.ok) return false;
+      const data = await res.json();
+      return Boolean(data.isConnected && data.state === 'CONNECTED');
+    } catch {
+      return false;
+    }
+  };
+
+  const executeTrialApproval = async (reqItem: TrialRequestItem) => {
+    setApprovingTrialId(reqItem.id);
+    try {
+      const res = await fetch('/api/admin/trial', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requestId: reqItem.id,
+          action: 'approve'
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        const waMsg = data.whatsappSent
+          ? '✅ Login credentials automatically sent to user on WhatsApp!'
+          : '⚠️ Account created, but WhatsApp message could not be delivered.';
+        alert(`🎉 Trial Approved for "${reqItem.businessName}"!\n\n• Username: @${data.credentials?.username}\n• Password: ${data.credentials?.password}\n\n${waMsg}`);
+        await Promise.all([fetchTrialRequests(), fetchUsers()]);
+      } else {
+        alert(data.error || 'Failed to approve trial request.');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Error approving trial request.');
+    } finally {
+      setApprovingTrialId(null);
+    }
+  };
+
+  const handleApproveTrial = async (reqItem: TrialRequestItem) => {
+    setIsCheckingWa(true);
+    setApprovingTrialId(reqItem.id);
+    try {
+      // Step 1: Check whether admin has WhatsApp Web connected
+      const isConnected = await checkAdminWhatsAppConnected(adminUid);
+      setIsCheckingWa(false);
+
+      if (!isConnected) {
+        // If WhatsApp Web is not connected, ask admin to connect WhatsApp using the existing connection process
+        setPendingTrialForApproval(reqItem);
+        setIsWaConnectModalOpen(true);
+        setApprovingTrialId(null);
+        return;
+      }
+
+      // Step 2: WhatsApp is connected -> execute approval and send WhatsApp message
+      await executeTrialApproval(reqItem);
+    } catch (err: any) {
+      setIsCheckingWa(false);
+      setApprovingTrialId(null);
+      alert(err.message || 'Error verifying WhatsApp connection status.');
+    }
+  };
+
+  const handleAdminSessionChange = (newSession: WhatsAppWebSession) => {
+    setAdminSession(newSession);
+    if (newSession.connected && pendingTrialForApproval) {
+      const item = pendingTrialForApproval;
+      setPendingTrialForApproval(null);
+      setIsWaConnectModalOpen(false);
+      executeTrialApproval(item);
+    }
+  };
+
+  // Live polling while connect modal is open
+  useEffect(() => {
+    if (!isWaConnectModalOpen || !pendingTrialForApproval) return;
+    const interval = setInterval(async () => {
+      const isConn = await checkAdminWhatsAppConnected(adminUid);
+      if (isConn) {
+        clearInterval(interval);
+        const item = pendingTrialForApproval;
+        setIsWaConnectModalOpen(false);
+        setPendingTrialForApproval(null);
+        executeTrialApproval(item);
+      }
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [isWaConnectModalOpen, pendingTrialForApproval, adminUid]);
+
+  const handleRejectTrial = async (reqItem: TrialRequestItem) => {
+    if (!window.confirm(`Reject free trial request from "${reqItem.businessName}"?`)) return;
+    try {
+      const res = await fetch('/api/admin/trial', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requestId: reqItem.id,
+          action: 'reject'
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        await fetchTrialRequests();
+      }
+    } catch (err: any) {
+      alert(err.message || 'Error rejecting trial.');
+    }
+  };
+
+  const handleApproveRenewal = async (item: RenewalRequestItem) => {
+    setApprovingRenewalId(item.id);
+    try {
+      const res = await fetch('/api/admin/subscriptions/renewals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requestId: item.id,
+          action: 'approve'
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(data.message);
+        await Promise.all([fetchRenewalRequests(), fetchUsers()]);
+      } else {
+        alert(data.error || 'Failed to approve renewal.');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Error approving renewal.');
+    } finally {
+      setApprovingRenewalId(null);
+    }
+  };
+
+  const handleRejectRenewal = async (item: RenewalRequestItem) => {
+    if (!window.confirm(`Reject renewal request for "@${item.username}"?`)) return;
+    try {
+      const res = await fetch('/api/admin/subscriptions/renewals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requestId: item.id,
+          action: 'reject'
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        await fetchRenewalRequests();
+      }
+    } catch (err: any) {
+      alert(err.message || 'Error rejecting renewal.');
+    }
+  };
+
+  const handleActivatePlanSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!planActivationUser) return;
+
+    setIsActivatingPlan(true);
+    setPlanActivationMsg(null);
+    try {
+      const res = await fetch('/api/admin/subscriptions/activate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: planActivationUser.id,
+          planType: selectedPlanToActivate
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setPlanActivationMsg({ type: 'success', text: data.message });
+        await fetchUsers();
+        setTimeout(() => {
+          setPlanActivationUser(null);
+          setPlanActivationMsg(null);
+        }, 1500);
+      } else {
+        setPlanActivationMsg({ type: 'error', text: data.error || 'Failed to activate plan' });
+      }
+    } catch (err: any) {
+      setPlanActivationMsg({ type: 'error', text: err.message || 'Error activating plan' });
+    } finally {
+      setIsActivatingPlan(false);
+    }
   };
 
   useEffect(() => {
@@ -720,28 +1019,60 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
       <div className="bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-xs overflow-hidden">
         <div className="p-4 sm:p-5 border-b border-zinc-200 dark:border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           {/* Tab Switcher */}
-          <div className="flex items-center gap-2 bg-zinc-100 dark:bg-zinc-800/80 p-1 rounded-xl">
+          <div className="flex flex-wrap items-center gap-1.5 bg-zinc-100 dark:bg-zinc-800/80 p-1 rounded-xl">
             <button
               onClick={() => setActiveTab('users')}
-              className={`px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 ${
+              className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
                 activeTab === 'users'
                   ? 'bg-white dark:bg-zinc-900 text-[#5722AF] dark:text-purple-300 shadow-2xs'
                   : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
               }`}
             >
               <Users className="w-4 h-4" />
-              <span>User Accounts ({users.length})</span>
+              <span>Users ({users.length})</span>
             </button>
             <button
               onClick={() => setActiveTab('campaigns')}
-              className={`px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 ${
+              className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
                 activeTab === 'campaigns'
                   ? 'bg-white dark:bg-zinc-900 text-[#5722AF] dark:text-purple-300 shadow-2xs'
                   : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
               }`}
             >
               <Layers className="w-4 h-4" />
-              <span>Campaigns &amp; Results ({campaigns.length})</span>
+              <span>Campaigns ({campaigns.length})</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('trials')}
+              className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                activeTab === 'trials'
+                  ? 'bg-white dark:bg-zinc-900 text-[#5722AF] dark:text-purple-300 shadow-2xs'
+                  : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+              }`}
+            >
+              <Gift className="w-4 h-4" />
+              <span>Trial Requests</span>
+              {trialRequests.filter(r => r.status === 'pending').length > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-[#5722AF] text-white">
+                  {trialRequests.filter(r => r.status === 'pending').length}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab('renewals')}
+              className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                activeTab === 'renewals'
+                  ? 'bg-white dark:bg-zinc-900 text-[#5722AF] dark:text-purple-300 shadow-2xs'
+                  : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+              }`}
+            >
+              <CreditCard className="w-4 h-4" />
+              <span>Plan Renewals</span>
+              {renewalRequests.filter(r => r.status === 'pending').length > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-emerald-600 text-white">
+                  {renewalRequests.filter(r => r.status === 'pending').length}
+                </span>
+              )}
             </button>
           </div>
 
@@ -815,6 +1146,7 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
                     <th className="px-4 py-3">Date Created</th>
                     <th className="px-4 py-3 text-center">Campaigns</th>
                     <th className="px-4 py-3 text-center">Sent / Failed</th>
+                    <th className="px-4 py-3 text-center">Subscription</th>
                     <th className="px-4 py-3 text-center">Status</th>
                     <th className="px-4 py-3 text-right">Actions</th>
                   </tr>
@@ -852,6 +1184,30 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
                         <span className="text-zinc-400 mx-1">/</span>
                         <span className="font-semibold text-rose-600 dark:text-rose-400">{u.failedMessages}</span>
                       </td>
+                      <td className="px-4 py-3.5 text-center whitespace-nowrap">
+                        {u.subscriptionType === 'paid' ? (
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                            u.isExpired
+                              ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300 border border-rose-200 dark:border-rose-900'
+                              : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                          }`}>
+                            <span>⭐</span>
+                            <span>{u.planType === '1_month' ? '1 Mo' : u.planType === '3_months' ? '3 Mo' : u.planType === '6_months' ? '6 Mo' : 'Paid'}:</span>
+                            <span>{u.isExpired ? 'Expired' : `${u.daysRemaining ?? 0}d left`}</span>
+                          </span>
+                        ) : u.subscriptionType === 'trial' ? (
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                            u.isExpired
+                              ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300 border border-rose-200 dark:border-rose-900'
+                              : 'bg-purple-50 text-[#5722AF] dark:bg-purple-950/50 dark:text-purple-300 border border-purple-200 dark:border-purple-800'
+                          }`}>
+                            <span>🕒</span>
+                            <span>Trial: {u.isExpired ? 'Ended' : `${u.daysRemaining ?? 10}d left`}</span>
+                          </span>
+                        ) : (
+                          <span className="text-zinc-400 text-xs font-medium">None</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3.5 text-center">
                         <button
                           onClick={() => handleToggleStatus(u)}
@@ -866,6 +1222,17 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
                         </button>
                       </td>
                       <td className="px-4 py-3.5 text-right whitespace-nowrap space-x-1">
+                        <button
+                          onClick={() => {
+                            setPlanActivationUser(u);
+                            setSelectedPlanToActivate('1_month');
+                            setPlanActivationMsg(null);
+                          }}
+                          title="Activate Paid Plan (1, 3, 6 Months)"
+                          className="p-1.5 text-zinc-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition cursor-pointer"
+                        >
+                          <Zap className="w-4 h-4 text-emerald-500" />
+                        </button>
                         <button
                           onClick={() => {
                             setActiveTab('campaigns');
@@ -983,6 +1350,261 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+
+        {/* Tab View 3: Trial Requests */}
+        {activeTab === 'trials' && (
+          <div className="overflow-x-auto">
+            {trialRequests.length === 0 ? (
+              <div className="text-center py-16 px-4">
+                <Gift className="w-12 h-12 text-zinc-300 dark:text-zinc-700 mx-auto mb-3" />
+                <h3 className="text-base font-semibold text-zinc-800 dark:text-zinc-200">No Trial Requests Yet</h3>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 max-w-sm mx-auto mt-1">
+                  When new visitors on the marketing page request a 10-day free trial, their requests will appear here for approval.
+                </p>
+              </div>
+            ) : (
+              <table className="w-full text-left text-xs sm:text-sm">
+                <thead className="bg-zinc-50/70 dark:bg-zinc-800/40 text-zinc-500 dark:text-zinc-400 font-semibold border-b border-zinc-200 dark:border-zinc-800">
+                  <tr>
+                    <th className="px-4 py-3">Business Name</th>
+                    <th className="px-4 py-3">WhatsApp Number</th>
+                    <th className="px-4 py-3">Date Requested</th>
+                    <th className="px-4 py-3 text-center">Status</th>
+                    <th className="px-4 py-3 text-center">Assigned User</th>
+                    <th className="px-4 py-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800 text-zinc-800 dark:text-zinc-200">
+                  {trialRequests.map(r => (
+                    <tr key={r.id} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30 transition-colors">
+                      <td className="px-4 py-3.5">
+                        <div className="font-semibold text-zinc-900 dark:text-white flex items-center gap-1.5">
+                          <Building className="w-3.5 h-3.5 text-zinc-400" />
+                          <span>{r.businessName}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-300">
+                          <Phone className="w-3.5 h-3.5 text-zinc-400" />
+                          <span>{r.phoneNumber}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3.5 text-xs text-zinc-500 dark:text-zinc-400 whitespace-nowrap">
+                        {new Date(r.createdAt).toLocaleString(undefined, {
+                          dateStyle: 'short',
+                          timeStyle: 'short'
+                        })}
+                      </td>
+                      <td className="px-4 py-3.5 text-center whitespace-nowrap">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                            r.status === 'approved'
+                              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                              : r.status === 'rejected'
+                              ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border border-rose-200 dark:border-rose-900'
+                              : 'bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+                          }`}
+                        >
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              r.status === 'approved'
+                                ? 'bg-emerald-500'
+                                : r.status === 'rejected'
+                                ? 'bg-rose-500'
+                                : 'bg-amber-500'
+                            }`}
+                          />
+                          <span className="capitalize">{r.status}</span>
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5 text-center text-xs font-mono text-zinc-500 dark:text-zinc-400">
+                        {r.assignedUsername ? `@${r.assignedUsername}` : '—'}
+                      </td>
+                      <td className="px-4 py-3.5 text-right whitespace-nowrap space-x-1.5">
+                        {r.status === 'pending' ? (
+                          <>
+                            <button
+                              onClick={() => handleApproveTrial(r)}
+                              disabled={approvingTrialId === r.id}
+                              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center gap-1 transition cursor-pointer shadow-2xs disabled:opacity-60"
+                            >
+                              {approvingTrialId === r.id ? (
+                                <>
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  <span>Approving...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Check className="w-3.5 h-3.5" />
+                                  <span>Approve Trial</span>
+                                </>
+                              )}
+                            </button>
+                            <button
+                              onClick={() => handleRejectTrial(r)}
+                              disabled={approvingTrialId === r.id}
+                              className="px-2.5 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-700 text-zinc-500 hover:text-rose-600 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-semibold inline-flex items-center gap-1 transition cursor-pointer"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                              <span>Reject</span>
+                            </button>
+                          </>
+                        ) : (
+                          <span className="text-[11px] text-zinc-400">
+                            {r.approvedAt ? new Date(r.approvedAt).toLocaleDateString() : 'Processed'}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+
+        {/* Tab View 4: Plan Renewals */}
+        {activeTab === 'renewals' && (
+          <div className="overflow-x-auto">
+            {renewalRequests.length === 0 ? (
+              <div className="text-center py-16 px-4">
+                <CreditCard className="w-12 h-12 text-zinc-300 dark:text-zinc-700 mx-auto mb-3" />
+                <h3 className="text-base font-semibold text-zinc-800 dark:text-zinc-200">No Renewal Requests Yet</h3>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 max-w-sm mx-auto mt-1">
+                  When logged-in users submit plan renewal payments via UPI with their Transaction ID, they will appear here.
+                </p>
+              </div>
+            ) : (
+              <table className="w-full text-left text-xs sm:text-sm">
+                <thead className="bg-zinc-50/70 dark:bg-zinc-800/40 text-zinc-500 dark:text-zinc-400 font-semibold border-b border-zinc-200 dark:border-zinc-800">
+                  <tr>
+                    <th className="px-4 py-3">User &amp; Business</th>
+                    <th className="px-4 py-3">Phone Number</th>
+                    <th className="px-4 py-3">Plan Selected</th>
+                    <th className="px-4 py-3 text-center">Amount</th>
+                    <th className="px-4 py-3">UPI Transaction ID / UTR</th>
+                    <th className="px-4 py-3">Date Submitted</th>
+                    <th className="px-4 py-3 text-center">Status</th>
+                    <th className="px-4 py-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800 text-zinc-800 dark:text-zinc-200">
+                  {renewalRequests.map(item => {
+                    const planLabels: Record<string, string> = {
+                      '1_month': '1 Month (30d)',
+                      '3_months': '3 Months (90d)',
+                      '6_months': '6 Months (180d)'
+                    };
+                    return (
+                      <tr key={item.id} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30 transition-colors">
+                        <td className="px-4 py-3.5">
+                          <div className="font-semibold text-zinc-900 dark:text-white flex items-center gap-1.5">
+                            <Building className="w-3.5 h-3.5 text-zinc-400" />
+                            <span>{item.businessName || item.username}</span>
+                          </div>
+                          <div className="text-xs text-zinc-400 dark:text-zinc-500 font-mono">@{item.username}</div>
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <div className="flex items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-300">
+                            <Phone className="w-3.5 h-3.5 text-zinc-400" />
+                            <span>{item.phoneNumber || '—'}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3.5 font-medium text-zinc-900 dark:text-white">
+                          <span className="px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/50 text-[#5722AF] dark:text-purple-300 font-semibold text-xs">
+                            {planLabels[item.planType] || item.planType}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3.5 text-center font-bold text-zinc-900 dark:text-white">
+                          ₹{item.amount}
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <div className="flex items-center gap-1.5 font-mono text-xs bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded-md w-fit">
+                            <span>{item.transactionId}</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(item.transactionId);
+                                alert('Transaction ID copied!');
+                              }}
+                              className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 cursor-pointer"
+                              title="Copy UTR"
+                            >
+                              <Copy className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3.5 text-xs text-zinc-500 dark:text-zinc-400 whitespace-nowrap">
+                          {new Date(item.createdAt).toLocaleString(undefined, {
+                            dateStyle: 'short',
+                            timeStyle: 'short'
+                          })}
+                        </td>
+                        <td className="px-4 py-3.5 text-center whitespace-nowrap">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                              item.status === 'approved'
+                                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                                : item.status === 'rejected'
+                                ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border border-rose-200 dark:border-rose-900'
+                                : 'bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+                            }`}
+                          >
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full ${
+                                item.status === 'approved'
+                                  ? 'bg-emerald-500'
+                                  : item.status === 'rejected'
+                                  ? 'bg-rose-500'
+                                  : 'bg-amber-500'
+                              }`}
+                            />
+                            <span className="capitalize">{item.status}</span>
+                          </span>
+                        </td>
+                        <td className="px-4 py-3.5 text-right whitespace-nowrap space-x-1.5">
+                          {item.status === 'pending' ? (
+                            <>
+                              <button
+                                onClick={() => handleApproveRenewal(item)}
+                                disabled={approvingRenewalId === item.id}
+                                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center gap-1 transition cursor-pointer shadow-2xs disabled:opacity-60"
+                              >
+                                {approvingRenewalId === item.id ? (
+                                  <>
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    <span>Activating...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Check className="w-3.5 h-3.5" />
+                                    <span>Approve &amp; Activate</span>
+                                  </>
+                                )}
+                              </button>
+                              <button
+                                onClick={() => handleRejectRenewal(item)}
+                                disabled={approvingRenewalId === item.id}
+                                className="px-2.5 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-700 text-zinc-500 hover:text-rose-600 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-semibold inline-flex items-center gap-1 transition cursor-pointer"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                                <span>Reject</span>
+                              </button>
+                            </>
+                          ) : (
+                            <span className="text-[11px] text-zinc-400">
+                              {item.approvedAt ? new Date(item.approvedAt).toLocaleDateString() : 'Processed'}
+                            </span>
+                          )}
                         </td>
                       </tr>
                     );
@@ -1249,6 +1871,198 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Activate Paid Plan for User */}
+      {planActivationUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl max-w-md w-full p-6 shadow-2xl relative space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-purple-100 dark:bg-purple-950 text-[#5722AF] dark:text-purple-300 flex items-center justify-center">
+                  <Zap className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-zinc-900 dark:text-white">Activate Paid Plan</h3>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    User: @{planActivationUser.username} ({planActivationUser.businessName})
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setPlanActivationUser(null)}
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {planActivationMsg && (
+              <div
+                className={`p-2.5 rounded-xl text-xs flex items-center gap-2 ${
+                  planActivationMsg.type === 'success'
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 text-emerald-700 dark:text-emerald-300'
+                    : 'bg-rose-50 dark:bg-rose-950/40 border border-rose-200 text-rose-700 dark:text-rose-300'
+                }`}
+              >
+                {planActivationMsg.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                )}
+                <span>{planActivationMsg.text}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleActivatePlanSubmit} className="space-y-4 pt-1">
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                  Select Plan Duration to Activate:
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { key: '1_month' as const, label: '1 Month', days: '30 Days', price: '₹317', limit: '450/day' },
+                    { key: '3_months' as const, label: '3 Months', days: '90 Days', price: '₹817', limit: '650/day' },
+                    { key: '6_months' as const, label: '6 Months', days: '180 Days', price: '₹1,217', limit: '850/day (2 Accounts)' }
+                  ].map(p => {
+                    const isSelected = selectedPlanToActivate === p.key;
+                    return (
+                      <button
+                        key={p.key}
+                        type="button"
+                        onClick={() => setSelectedPlanToActivate(p.key)}
+                        className={`p-3 rounded-xl border text-center transition cursor-pointer ${
+                          isSelected
+                            ? 'border-[#5722AF] bg-purple-50 dark:bg-purple-950/40 text-[#5722AF] dark:text-purple-300 ring-1 ring-[#5722AF]'
+                            : 'border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300'
+                        }`}
+                      >
+                        <div className="font-bold text-xs">{p.label}</div>
+                        <div className="text-[11px] font-extrabold mt-0.5">{p.price}</div>
+                        <div className="text-[10px] text-zinc-400 mt-0.5">{p.days}</div>
+                        <div className="text-[9px] font-semibold text-[#5722AF] dark:text-purple-300 mt-0.5">{p.limit}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                Activating this plan starts the countdown on the user’s account and automatically sends a confirmation message to their WhatsApp number.
+              </p>
+
+              <div className="pt-2 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPlanActivationUser(null)}
+                  className="px-4 py-2 rounded-xl border border-zinc-200 dark:border-zinc-700 text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isActivatingPlan}
+                  className="px-4 py-2 rounded-xl bg-[#5722AF] hover:bg-[#471b92] text-white text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-2xs disabled:opacity-60"
+                >
+                  {isActivatingPlan ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Activating...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="w-3.5 h-3.5" />
+                      <span>Activate Plan Now</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Connect WhatsApp to Approve Trial */}
+      {isWaConnectModalOpen && pendingTrialForApproval && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl max-w-2xl w-full p-5 sm:p-6 shadow-2xl relative space-y-4 max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3 pb-2 border-b border-zinc-200 dark:border-zinc-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                  <Smartphone className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-bold text-zinc-900 dark:text-white">
+                    Connect WhatsApp to Approve Trial
+                  </h3>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    To send login details to <strong className="text-zinc-800 dark:text-zinc-200">{pendingTrialForApproval.businessName}</strong> ({pendingTrialForApproval.phoneNumber}), please connect your WhatsApp below.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setIsWaConnectModalOpen(false);
+                  setPendingTrialForApproval(null);
+                }}
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Info Banner */}
+            <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-amber-600 mt-0.5" />
+              <span>
+                Your WhatsApp Web session is currently disconnected. Once connected, ToolNest will automatically approve the trial request and send their username &amp; password generated for <strong>{pendingTrialForApproval.businessName}</strong> directly on WhatsApp.
+              </span>
+            </div>
+
+            {/* Same WhatsApp Connection Process */}
+            <div className="flex-1 overflow-y-auto pr-1">
+              <WhatsAppWebConnect
+                session={adminSession}
+                onSessionChange={handleAdminSessionChange}
+                userId={adminUid}
+              />
+            </div>
+
+            {/* Modal Footer Actions */}
+            <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsWaConnectModalOpen(false);
+                  setPendingTrialForApproval(null);
+                }}
+                className="px-4 py-2 rounded-xl border border-zinc-200 dark:border-zinc-700 text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  const isConn = await checkAdminWhatsAppConnected(adminUid);
+                  if (isConn) {
+                    const item = pendingTrialForApproval;
+                    setIsWaConnectModalOpen(false);
+                    setPendingTrialForApproval(null);
+                    executeTrialApproval(item);
+                  } else {
+                    alert('WhatsApp is not connected yet. Please scan the QR code or link your phone above.');
+                  }
+                }}
+                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+              >
+                <Check className="w-4 h-4" />
+                <span>I Have Connected WhatsApp — Approve Now</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

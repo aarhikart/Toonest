@@ -84,6 +84,14 @@ export interface SessionUser {
   phoneNumber: string;
   role: 'admin' | 'user';
   status: 'active' | 'inactive';
+  subscriptionType: 'trial' | 'paid' | 'none';
+  planType: '1_month' | '3_months' | '6_months' | null;
+  trialStartDate?: string | null;
+  trialEndDate?: string | null;
+  planStartDate?: string | null;
+  planEndDate?: string | null;
+  daysRemaining: number | null;
+  isExpired: boolean;
 }
 
 export async function getSessionUser(req?: NextRequest): Promise<SessionUser | null> {
@@ -115,13 +123,40 @@ export async function getSessionUser(req?: NextRequest): Promise<SessionUser | n
     const isActive = user.status === 'active' || user.role === 'admin' || !user.status;
     if (!isActive) return null;
 
+    const now = Date.now();
+    let daysRemaining: number | null = null;
+    let isExpired = false;
+
+    if (user.role === 'admin') {
+      daysRemaining = 999;
+      isExpired = false;
+    } else if (user.subscriptionType === 'paid' && user.planEndDate) {
+      const endMs = new Date(user.planEndDate).getTime();
+      const diffMs = endMs - now;
+      daysRemaining = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+      isExpired = diffMs <= 0;
+    } else if (user.subscriptionType === 'trial' && user.trialEndDate) {
+      const endMs = new Date(user.trialEndDate).getTime();
+      const diffMs = endMs - now;
+      daysRemaining = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+      isExpired = diffMs <= 0;
+    }
+
     return {
       id: user._id.toString(),
       username: user.username,
       businessName: user.businessName || 'ToolNest Business',
       phoneNumber: user.phoneNumber || '',
       role: (user.role as any) === 'admin' ? 'admin' : 'user',
-      status: (user.status as any) || 'active'
+      status: (user.status as any) || 'active',
+      subscriptionType: (user.subscriptionType as any) || 'none',
+      planType: user.planType || null,
+      trialStartDate: user.trialStartDate ? user.trialStartDate.toISOString() : null,
+      trialEndDate: user.trialEndDate ? user.trialEndDate.toISOString() : null,
+      planStartDate: user.planStartDate ? user.planStartDate.toISOString() : null,
+      planEndDate: user.planEndDate ? user.planEndDate.toISOString() : null,
+      daysRemaining,
+      isExpired
     };
   } catch (_) {
     return null;

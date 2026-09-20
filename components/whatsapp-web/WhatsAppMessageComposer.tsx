@@ -190,7 +190,7 @@ export const WhatsAppMessageComposer: React.FC<WhatsAppMessageComposerProps> = (
                 type="button"
                 onClick={onOpenGuide}
                 title="View Guide"
-                className="p-1 rounded-lg text-zinc-400 hover:text-[#5722AF] dark:hover:text-purple-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer shrink-0"
+                className="p-1 rounded-lg hidden text-zinc-400 hover:text-[#5722AF] dark:hover:text-purple-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer shrink-0"
               >
                 <HelpCircle className="w-4 h-4" />
               </button>
@@ -212,7 +212,7 @@ export const WhatsAppMessageComposer: React.FC<WhatsAppMessageComposerProps> = (
           <button
             type="button"
             onClick={() => insertVariable('{phone}')}
-            className="px-2.5 py-1 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/60 dark:hover:bg-purple-900 text-[#5722AF] dark:text-purple-300 rounded-lg text-xs font-mono font-bold transition cursor-pointer"
+            className="px-2.5 hidden py-1 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/60 dark:hover:bg-purple-900 text-[#5722AF] dark:text-purple-300 rounded-lg text-xs font-mono font-bold transition cursor-pointer"
             title="Click to insert customer's phone number"
           >
             {'{phone}'}
@@ -232,7 +232,7 @@ export const WhatsAppMessageComposer: React.FC<WhatsAppMessageComposerProps> = (
               className="w-full text-xs p-3.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-[#5722AF] leading-relaxed"
             />
             <div className="flex justify-between items-center text-[11px] text-zinc-400 mt-1">
-              <span>Dynamic Variables: {"{name}"}, {"{phone}"}</span>
+              <span>Dynamic Variables: {"{name}"}</span>
               <span>{message.length} characters</span>
             </div>
           </div>

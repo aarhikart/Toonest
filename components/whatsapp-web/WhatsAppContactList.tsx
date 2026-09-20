@@ -118,7 +118,7 @@ export const WhatsAppContactList: React.FC<WhatsAppContactListProps> = ({
                 type="button"
                 onClick={onOpenGuide}
                 title="View Guide"
-                className="p-1 rounded-lg text-zinc-400 hover:text-[#5722AF] dark:hover:text-purple-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer shrink-0"
+                className="p-1 rounded-lg hidden text-zinc-400 hover:text-[#5722AF] dark:hover:text-purple-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer shrink-0"
               >
                 <HelpCircle className="w-4 h-4" />
               </button>

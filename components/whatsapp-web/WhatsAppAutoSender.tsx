@@ -311,14 +311,14 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
           </div>
           <div className="flex items-center gap-1.5 min-w-0">
             <h3 className="text-sm sm:text-base font-bold text-zinc-900 dark:text-zinc-100 whitespace-nowrap">
-              Send Messages
+              Send 
             </h3>
             {onOpenGuide && (
               <button
                 type="button"
                 onClick={onOpenGuide}
                 title="View Guide"
-                className="p-1 rounded-lg text-zinc-400 hover:text-[#5722AF] dark:hover:text-purple-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer shrink-0"
+                className="p-1 rounded-lg hidden text-zinc-400 hover:text-[#5722AF] dark:hover:text-purple-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer shrink-0"
               >
                 <HelpCircle className="w-4 h-4" />
               </button>
