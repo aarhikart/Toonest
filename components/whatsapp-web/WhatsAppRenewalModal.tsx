@@ -41,7 +41,7 @@ export const WhatsAppRenewalModal: React.FC<WhatsAppRenewalModalProps> = ({
   const [isSuccess, setIsSuccess] = useState(false);
   const [copiedUpi, setCopiedUpi] = useState(false);
 
-  const UPI_ID = 'aarhikart@okaxis';
+  const UPI_ID = 'hiteshhppatidarhak106-1@oksbi';
   const PAYEE_NAME = 'ToolNest';
 
   const planPrices: Record<'1_month' | '3_months' | '6_months', { amount: number; label: string; days: string; limit: string }> = {
