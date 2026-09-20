@@ -491,6 +491,23 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
     }
   };
 
+  const handleDeleteTrialRequest = async (reqItem: TrialRequestItem) => {
+    if (!window.confirm(`Delete trial request record for "${reqItem.businessName}"? This will allow this phone number to submit a trial request again.`)) return;
+    try {
+      const res = await fetch(`/api/admin/trial?id=${reqItem.id}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (data.success) {
+        await fetchTrialRequests();
+      } else {
+        alert(data.error || 'Failed to delete trial request.');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Error deleting trial request.');
+    }
+  };
+
   const handleApproveRenewal = async (item: RenewalRequestItem) => {
     setApprovingRenewalId(item.id);
     try {
@@ -1459,9 +1476,18 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
                             </button>
                           </>
                         ) : (
-                          <span className="text-[11px] text-zinc-400">
-                            {r.approvedAt ? new Date(r.approvedAt).toLocaleDateString() : 'Processed'}
-                          </span>
+                          <div className="inline-flex items-center gap-2">
+                            <span className="text-[11px] text-zinc-400">
+                              {r.approvedAt ? new Date(r.approvedAt).toLocaleDateString() : 'Processed'}
+                            </span>
+                            <button
+                              onClick={() => handleDeleteTrialRequest(r)}
+                              title="Delete trial request record (allows number to request trial again)"
+                              className="p-1.5 text-zinc-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         )}
                       </td>
                     </tr>

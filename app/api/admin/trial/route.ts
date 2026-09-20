@@ -58,6 +58,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Trial request not found.' }, { status: 404 });
     }
 
+    if (action === 'delete') {
+      await TrialRequest.findByIdAndDelete(requestId);
+      return NextResponse.json({ success: true, message: 'Trial request deleted successfully.' });
+    }
+
     if (action === 'reject') {
       trialReq.status = 'rejected';
       await trialReq.save();
@@ -121,7 +126,7 @@ export async function POST(req: NextRequest) {
 
       // Automatically send WhatsApp message to the user
 
-      const whatsappMsg = `Hello *${trialReq.businessName}*! 🎉\n\nYour 10-Day Free Trial for ToolNest WhatsApp Marketing has been approved!\n\n🌐 *Access Portal & Start Trial:*\n(or visit https://toonest.vercel.app/)\n\n🔑 *Your Login Credentials:*\n• Username: *${finalUsername}*\n• Password: *${rawPassword}*\n\nYour 10-day trial countdown is now active. Enjoy fast and safe bulk messaging!`; 
+      const whatsappMsg = `Hello *${trialReq.businessName}*! 🎉\n\nYour 10-Day Free Trial for ToolNest WhatsApp Marketing has been approved!\n\n🌐 *Access Portal & Start Trial:*\nor visit https://toonest.vercel.app\n\n🔑 *Your Login Credentials:*\n• Username: *${finalUsername}*\n• Password: *${rawPassword}*\n\nYour 10-day trial countdown is now active. Enjoy fast and safe bulk messaging!`; 
       // Dispatch WhatsApp message from admin's connected session
       let waSent = false;
       try {
@@ -148,6 +153,31 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, error: 'Invalid action.' }, { status: 400 });
   } catch (err: any) {
     console.error('[Admin Trial Action Error]:', err);
+    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+  }
+}
+
+// DELETE: Admin deletes a trial request
+export async function DELETE(req: NextRequest) {
+  try {
+    const admin = await getSessionUser(req);
+    if (!admin || admin.role !== 'admin') {
+      return NextResponse.json({ success: false, error: 'Unauthorized: Admin access required.' }, { status: 403 });
+    }
+
+    const { searchParams } = new URL(req.url);
+    const requestId = searchParams.get('id');
+
+    if (!requestId) {
+      return NextResponse.json({ success: false, error: 'Request ID is required.' }, { status: 400 });
+    }
+
+    await connectToDatabase();
+    await TrialRequest.findByIdAndDelete(requestId);
+
+    return NextResponse.json({ success: true, message: 'Trial request deleted successfully.' });
+  } catch (err: any) {
+    console.error('[Admin Trial DELETE Error]:', err);
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }

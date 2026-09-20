@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb/client';
-import { User, Campaign } from '@/lib/mongodb/models';
+import { User, Campaign, TrialRequest, RenewalRequest } from '@/lib/mongodb/models';
 import { getSessionUser, hashPassword } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
@@ -146,8 +146,31 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'User not found.' }, { status: 404 });
     }
 
-    // Optionally cleanup user campaigns
+    // 1. Cleanup user campaigns
     await Campaign.deleteMany({ username: deleted.username });
+
+    // 2. Also cleanup trial requests for this phone number / assigned username
+    // so if the admin deletes the user, they can submit a free trial request again
+    const cleanPhone = (deleted.phoneNumber || '').replace(/\D/g, '');
+    if (cleanPhone.length >= 10) {
+      const phone10 = cleanPhone.slice(-10);
+      await TrialRequest.deleteMany({
+        $or: [
+          { phoneNumber: { $regex: new RegExp(phone10) } },
+          { assignedUsername: deleted.username }
+        ]
+      });
+    } else {
+      await TrialRequest.deleteMany({ assignedUsername: deleted.username });
+    }
+
+    // 3. Cleanup renewals for this user
+    await RenewalRequest.deleteMany({
+      $or: [
+        { userId: deleted._id },
+        { username: deleted.username }
+      ]
+    });
 
     return NextResponse.json({ success: true, message: `User "${deleted.username}" deleted successfully.` });
   } catch (err: any) {

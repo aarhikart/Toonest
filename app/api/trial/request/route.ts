@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb/client';
-import { TrialRequest } from '@/lib/mongodb/models';
+import { TrialRequest, User } from '@/lib/mongodb/models';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,17 +26,67 @@ export async function POST(req: NextRequest) {
 
     await connectToDatabase();
 
-    // Check if there's already a pending request for this phone
-    const existing = await TrialRequest.findOne({
-      phoneNumber: { $regex: new RegExp(cleanPhone.slice(-10) + '$') },
+    const phone10 = cleanPhone.slice(-10);
+    const phoneRegex = new RegExp(phone10);
+
+    // 1. Check if user already exists with an active trial or account on this phone number
+    const existingUser = await User.findOne({
+      phoneNumber: { $regex: phoneRegex }
+    });
+
+    if (existingUser) {
+      const now = new Date();
+      const isTrialExpired = existingUser.trialEndDate ? new Date(existingUser.trialEndDate) < now : false;
+
+      if (existingUser.subscriptionType === 'trial' && isTrialExpired) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Already you have taken the free trial on this number. Please check your WhatsApp or choose a paid plan to continue.'
+          },
+          { status: 400 }
+        );
+      }
+
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Already your plan is active. Please check your WhatsApp for your login details.'
+        },
+        { status: 400 }
+      );
+    }
+
+    // 2. Check if there is already an approved trial request for this phone number
+    const approvedTrial = await TrialRequest.findOne({
+      phoneNumber: { $regex: phoneRegex },
+      status: 'approved'
+    });
+
+    if (approvedTrial) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Already your plan is active. Please check your WhatsApp for your login details.'
+        },
+        { status: 400 }
+      );
+    }
+
+    // 3. Check if there is already a pending trial request for this phone number
+    const pendingTrial = await TrialRequest.findOne({
+      phoneNumber: { $regex: phoneRegex },
       status: 'pending'
     });
 
-    if (existing) {
-      return NextResponse.json({
-        success: true,
-        message: 'Your 10-day free trial request is already under review. Our team will approve it shortly!'
-      });
+    if (pendingTrial) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Already your trial request has been submitted and is under review. Please check your WhatsApp shortly.'
+        },
+        { status: 400 }
+      );
     }
 
     await TrialRequest.create({

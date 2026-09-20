@@ -112,9 +112,12 @@ export const WhatsAppTrialPopupModal: React.FC<WhatsAppTrialPopupModalProps> = (
         ) : (
           <form onSubmit={handleSubmit} className="space-y-3.5 pt-1">
             {errorMsg && (
-              <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 text-xs text-rose-700 dark:text-rose-300 flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{errorMsg}</span>
+              <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800/80 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2.5 shadow-2xs">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+                <div className="space-y-0.5">
+                  <span className="font-bold block text-zinc-900 dark:text-white">Notice</span>
+                  <p className="leading-relaxed">{errorMsg}</p>
+                </div>
               </div>
             )}
 
