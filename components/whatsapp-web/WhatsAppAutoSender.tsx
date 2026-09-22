@@ -14,12 +14,14 @@ import {
   ExternalLink,
   ShieldCheck,
   Server,
-  HelpCircle
+  HelpCircle,
+  Zap
 } from 'lucide-react';
 import { WebContact, WhatsAppWebSession } from '@/lib/whatsapp-web/types';
 import { WhatsAppSenderEngine } from '@/lib/whatsapp-web/sender';
 import { WhatsAppSessionManager } from '@/lib/whatsapp-web/session';
 import { MediaAttachment } from './WhatsAppMessageComposer';
+import { PlanLimitsConfig, DEFAULT_PLAN_LIMITS, WhatsAppLimitManager, CalculatedUsage } from '@/lib/whatsapp-web/limit-manager';
 
 interface WhatsAppAutoSenderProps {
   session: WhatsAppWebSession;
@@ -30,6 +32,14 @@ interface WhatsAppAutoSenderProps {
   media: MediaAttachment | null;
   onOpenGuide?: () => void;
   userId?: string;
+  planLimits?: PlanLimitsConfig;
+  currentUser?: {
+    role?: string;
+    subscriptionType?: string;
+    planType?: string | null;
+    username?: string;
+    [key: string]: any;
+  } | null;
 }
 
 interface LogItem {
@@ -52,7 +62,9 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
   delaySeconds,
   media,
   onOpenGuide,
-  userId
+  userId,
+  planLimits,
+  currentUser
 }) => {
   const effectiveUserId = (userId && userId.trim() !== 'default' ? userId.trim() : WhatsAppSessionManager.getUserId()).toLowerCase();
   const [isRunning, setIsRunning] = useState(false);
@@ -60,6 +72,29 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
   const [currentIndex, setCurrentIndex] = useState(0);
   const [logs, setLogs] = useState<LogItem[]>([]);
   const [dispatchMode, setDispatchMode] = useState<'WORKER' | 'BROWSER_TABS'>('WORKER');
+
+  const userLimit = WhatsAppLimitManager.getPlanLimit(
+    currentUser?.role,
+    currentUser?.subscriptionType,
+    currentUser?.planType,
+    planLimits
+  );
+
+  const [usage, setUsage] = useState<CalculatedUsage>(() =>
+    WhatsAppLimitManager.getUsage(effectiveUserId, userLimit, planLimits?.resetHours)
+  );
+
+  // Keep usage and countdown timer refreshed
+  React.useEffect(() => {
+    const refreshUsage = () => {
+      const current = WhatsAppLimitManager.getUsage(effectiveUserId, userLimit, planLimits?.resetHours);
+      setUsage(current);
+    };
+    refreshUsage();
+
+    const interval = setInterval(refreshUsage, 10000);
+    return () => clearInterval(interval);
+  }, [effectiveUserId, userLimit, planLimits?.resetHours]);
 
   const isRunningRef = useRef(false);
   const isPausedRef = useRef(false);
@@ -83,18 +118,38 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
       return;
     }
 
+    // Check message limit quota before starting
+    const currentQuota = WhatsAppLimitManager.getUsage(effectiveUserId, userLimit, planLimits?.resetHours);
+    setUsage(currentQuota);
+
+    if (currentQuota.isLimitReached) {
+      alert(
+        `Message quota limit of ${userLimit} reached for this ${planLimits?.resetHours || 24}-hour window.\n\nYou can send messages again in ${currentQuota.timeRemainingStr} (${currentQuota.resetTimeFormatted}).`
+      );
+      return;
+    }
+
+    // Deduplication: mark contacts as SENT if already delivered in history
+    let currentList = contacts.map(c => {
+      if (c.status !== 'SENT' && WhatsAppLimitManager.isAlreadyDelivered(effectiveUserId, c.phoneNumber)) {
+        return { ...c, status: 'SENT' as const };
+      }
+      return c;
+    });
+
+    const pendingContacts = currentList.filter(c => c.status !== 'SENT');
+    if (pendingContacts.length === 0 && currentList.length > 0) {
+      alert(
+        'All contacts in your list have already received messages!\n\nTo prevent duplicate messages, already delivered contacts are not messaged again. Add new contacts to continue sending.'
+      );
+      return;
+    }
+    onContactsUpdate([...currentList]);
+
     setIsRunning(true);
     setIsPaused(false);
     isRunningRef.current = true;
     isPausedRef.current = false;
-
-    // If all contacts are already marked SENT, auto-reset all to PENDING so the campaign can re-run
-    let currentList = [...contacts];
-    const pendingContacts = currentList.filter(c => c.status !== 'SENT');
-    if (pendingContacts.length === 0 && currentList.length > 0) {
-      currentList = currentList.map(c => ({ ...c, status: 'PENDING' as const }));
-      onContactsUpdate([...currentList]);
-    }
 
     for (let i = 0; i < currentList.length; i++) {
       if (!isRunningRef.current) break;
@@ -108,7 +163,25 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
 
       setCurrentIndex(i);
       const contact = currentList[i];
-      if (contact.status === 'SENT') continue;
+      if (contact.status === 'SENT' || WhatsAppLimitManager.isAlreadyDelivered(effectiveUserId, contact.phoneNumber)) {
+        if (contact.status !== 'SENT') {
+          contact.status = 'SENT';
+          onContactsUpdate([...currentList]);
+        }
+        continue;
+      }
+
+      // Check quota before sending this contact
+      const liveQuota = WhatsAppLimitManager.getUsage(effectiveUserId, userLimit, planLimits?.resetHours);
+      if (liveQuota.isLimitReached) {
+        setUsage(liveQuota);
+        setIsRunning(false);
+        isRunningRef.current = false;
+        alert(
+          `Message limit of ${userLimit} reached for this ${planLimits?.resetHours || 24}-hour window!\n\nCampaign paused safely. Delivered contacts are saved so duplicate messages will not be sent.\n\nYou can send the remaining contacts in ${liveQuota.timeRemainingStr} (${liveQuota.resetTimeFormatted}).`
+        );
+        break;
+      }
 
       contact.status = 'SENDING';
       onContactsUpdate([...currentList]);
@@ -238,6 +311,16 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
       contact.sentAt = new Date().toISOString();
       onContactsUpdate([...currentList]);
 
+      if (sendSuccess) {
+        const updatedUsage = WhatsAppLimitManager.recordDelivery(
+          effectiveUserId,
+          contact.phoneNumber,
+          userLimit,
+          planLimits?.resetHours
+        );
+        setUsage(updatedUsage);
+      }
+
       setLogs(prev => [
         {
           id: `log_${Date.now()}_${i}`,
@@ -365,6 +448,60 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
               </button>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Message Quota & Reset Window Telemetry Card */}
+      <div className="p-4 bg-purple-50/70 dark:bg-purple-950/25 rounded-2xl border border-purple-200/80 dark:border-purple-800/60 space-y-2.5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs">
+          <div className="flex items-center gap-1.5 font-bold text-zinc-900 dark:text-white">
+            <Zap className="w-4 h-4 text-[#5722AF] dark:text-purple-400" />
+            <span>Message Quota:</span>
+            {userLimit >= 999999 ? (
+              <span className="text-emerald-600 font-extrabold">Unlimited (Admin Mode)</span>
+            ) : (
+              <span className={usage.isLimitReached ? 'text-rose-600 font-extrabold' : 'text-[#5722AF] dark:text-purple-300 font-extrabold'}>
+                {usage.remaining} / {userLimit} messages remaining
+              </span>
+            )}
+          </div>
+
+          {userLimit < 999999 && (
+            <div className="flex items-center gap-1.5 text-zinc-500 dark:text-zinc-400 font-medium">
+              <Clock className="w-3.5 h-3.5 text-[#5722AF]" />
+              <span>
+                Resets in <strong>{usage.timeRemainingStr}</strong> ({usage.resetTimeFormatted})
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Small Quota Progress Bar */}
+        {userLimit < 999999 && (
+          <div className="w-full bg-zinc-200/80 dark:bg-zinc-800 h-2 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-300 ${
+                usage.isLimitReached ? 'bg-rose-500' : usage.remaining <= 10 ? 'bg-amber-500' : 'bg-[#5722AF]'
+              }`}
+              style={{ width: `${Math.min(100, Math.round((usage.sentInWindow / userLimit) * 100))}%` }}
+            />
+          </div>
+        )}
+
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between text-[11px] text-zinc-500 dark:text-zinc-400 gap-1">
+          <span>
+            {usage.isLimitReached ? (
+              <span className="text-rose-600 font-bold flex items-center gap-1">
+                <AlertCircle className="w-3.5 h-3.5" />
+                Limit reached! Next batch can be sent in {usage.timeRemainingStr}.
+              </span>
+            ) : (
+              <span>Configured window: {planLimits?.resetHours || 24} hours</span>
+            )}
+          </span>
+          <span className="text-zinc-600 dark:text-zinc-300 font-medium">
+            {usage.deliveredNumbers.length} delivered contacts saved (duplicates will be skipped)
+          </span>
         </div>
       </div>
 

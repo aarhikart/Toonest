@@ -14,6 +14,7 @@ import {
   User,
   CreditCard
 } from 'lucide-react';
+import { PlanLimitsConfig, DEFAULT_PLAN_LIMITS } from '@/lib/whatsapp-web/limit-manager';
 
 interface WhatsAppRenewalModalProps {
   isOpen: boolean;
@@ -25,6 +26,7 @@ interface WhatsAppRenewalModalProps {
   };
   initialPlan?: '1_month' | '3_months' | '6_months';
   onRenewalSubmitted?: () => void;
+  planLimits?: PlanLimitsConfig;
 }
 
 export const WhatsAppRenewalModal: React.FC<WhatsAppRenewalModalProps> = ({
@@ -32,7 +34,8 @@ export const WhatsAppRenewalModal: React.FC<WhatsAppRenewalModalProps> = ({
   onClose,
   currentUser,
   initialPlan = '1_month',
-  onRenewalSubmitted
+  onRenewalSubmitted,
+  planLimits
 }) => {
   const [selectedPlan, setSelectedPlan] = useState<'1_month' | '3_months' | '6_months'>(initialPlan);
   const [transactionId, setTransactionId] = useState('');
@@ -40,14 +43,28 @@ export const WhatsAppRenewalModal: React.FC<WhatsAppRenewalModalProps> = ({
   const [errorMsg, setErrorMsg] = useState('');
   const [isSuccess, setIsSuccess] = useState(false);
   const [copiedUpi, setCopiedUpi] = useState(false);
+  const [limits, setLimits] = useState<PlanLimitsConfig>(planLimits || DEFAULT_PLAN_LIMITS);
+
+  useEffect(() => {
+    if (planLimits) {
+      setLimits(planLimits);
+    } else if (isOpen) {
+      fetch('/api/whatsapp/plan-limits')
+        .then(r => r.json())
+        .then(data => {
+          if (data.success && data.limits) setLimits(data.limits);
+        })
+        .catch(() => {});
+    }
+  }, [planLimits, isOpen]);
 
   const UPI_ID = 'hiteshhppatidarhak106-1@oksbi';
   const PAYEE_NAME = 'ToolNest';
 
   const planPrices: Record<'1_month' | '3_months' | '6_months', { amount: number; label: string; days: string; limit: string }> = {
-    '1_month': { amount: 317, label: '1 Month Plan', days: '30 Days', limit: '450/day' },
-    '3_months': { amount: 817, label: '3 Months Plan', days: '90 Days', limit: '650/day' },
-    '6_months': { amount: 1217, label: '6 Months Plan', days: '180 Days', limit: '850/day (2 Accounts)' }
+    '1_month': { amount: 317, label: '1 Month Plan', days: '30 Days', limit: `${limits['1_month']}/day` },
+    '3_months': { amount: 817, label: '3 Months Plan', days: '90 Days', limit: `${limits['3_months']}/day` },
+    '6_months': { amount: 1217, label: '6 Months Plan', days: '180 Days', limit: `${limits['6_months']}/day (2 Accounts)` }
   };
 
   useEffect(() => {

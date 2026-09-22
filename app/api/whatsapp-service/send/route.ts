@@ -19,16 +19,37 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 25000);
+    const trySend = async (url: string) => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 25000);
+      try {
+        const res = await fetch(`${url}/send`, {
+          method: 'POST',
+          headers: getWorkerHeaders(serviceSecret, userId),
+          body: JSON.stringify({ ...body, userId }),
+          signal: controller.signal
+        });
+        clearTimeout(timeout);
+        return res;
+      } catch (e) {
+        clearTimeout(timeout);
+        throw e;
+      }
+    };
 
-    const res = await fetch(`${serviceUrl}/send`, {
-      method: 'POST',
-      headers: getWorkerHeaders(serviceSecret, userId),
-      body: JSON.stringify({ ...body, userId }),
-      signal: controller.signal
-    });
-    clearTimeout(timeout);
+    let res: Response;
+    try {
+      res = await trySend(serviceUrl);
+      if (!res.ok && res.status >= 500 && serviceUrl !== 'http://localhost:5001') {
+        res = await trySend('http://localhost:5001');
+      }
+    } catch (err) {
+      if (serviceUrl !== 'http://localhost:5001') {
+        res = await trySend('http://localhost:5001');
+      } else {
+        throw err;
+      }
+    }
 
     const rawText = await res.text();
     let data: any;

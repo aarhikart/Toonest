@@ -9,6 +9,7 @@ const whatsapp_web_js_1 = require("whatsapp-web.js");
 const qrcode_1 = __importDefault(require("qrcode"));
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
+const child_process_1 = require("child_process");
 /**
  * Intelligent phone number normalizer matching /whatsapp-mess
  */
@@ -75,6 +76,53 @@ class WhatsAppSessionEngine {
         catch (_) { }
         return options;
     }
+    isClientConnecting() {
+        return this.isConnecting;
+    }
+    killOrphanChromeProcesses() {
+        if (process.platform !== 'win32')
+            return;
+        try {
+            const cleanPath = path_1.default.resolve(this.getAuthPath()).toLowerCase();
+            const script = `
+        $target = ${JSON.stringify(cleanPath)}
+        Get-CimInstance Win32_Process -Filter "Name = 'chrome.exe'" | Where-Object {
+          $_.CommandLine -and $_.CommandLine.ToLower().Contains($target)
+        } | ForEach-Object {
+          Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+        }
+      `;
+            const encoded = Buffer.from(script, 'utf16le').toString('base64');
+            (0, child_process_1.execFileSync)('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], { stdio: 'ignore', timeout: 8000 });
+        }
+        catch (_) { }
+    }
+    purgeLockFiles() {
+        try {
+            const authPath = this.getAuthPath();
+            const sessionPath = path_1.default.join(authPath, 'session');
+            if (!fs_1.default.existsSync(sessionPath))
+                return;
+            const lockItems = [
+                'DevToolsActivePort',
+                'lockfile',
+                'SingletonLock',
+                'SingletonCookie',
+                'SingletonSocket',
+                path_1.default.join('Default', 'LOCK')
+            ];
+            for (const item of lockItems) {
+                const itemPath = path_1.default.join(sessionPath, item);
+                try {
+                    if (fs_1.default.existsSync(itemPath)) {
+                        fs_1.default.unlinkSync(itemPath);
+                    }
+                }
+                catch (_) { }
+            }
+        }
+        catch (_) { }
+    }
     async initialize(pairPhoneNumber) {
         if (this.isConnecting) {
             console.log(`[WhatsApp Worker (${this.userId})] WhatsApp Web client is already initializing...`);
@@ -90,23 +138,6 @@ class WhatsAppSessionEngine {
         try {
             const authPath = this.getAuthPath();
             fs_1.default.mkdirSync(authPath, { recursive: true });
-            // Automatically purge stale lockfiles from any unexpected previous exit or crash
-            try {
-                const sessionPath = path_1.default.join(authPath, 'session');
-                if (fs_1.default.existsSync(sessionPath)) {
-                    const lockItems = ['DevToolsActivePort', 'lockfile', 'SingletonLock', 'SingletonCookie', 'SingletonSocket'];
-                    for (const item of lockItems) {
-                        const itemPath = path_1.default.join(sessionPath, item);
-                        if (fs_1.default.existsSync(itemPath)) {
-                            try {
-                                fs_1.default.unlinkSync(itemPath);
-                            }
-                            catch (_) { }
-                        }
-                    }
-                }
-            }
-            catch (_) { }
             if (this.client) {
                 try {
                     await this.client.destroy();
@@ -114,6 +145,10 @@ class WhatsAppSessionEngine {
                 catch (_) { }
                 this.client = null;
             }
+            // Automatically terminate any orphan Chrome process holding this user's profile
+            this.killOrphanChromeProcesses();
+            // Automatically purge stale lockfiles from any unexpected previous exit or crash
+            this.purgeLockFiles();
             console.log(`[WhatsApp Worker (${this.userId})] Launching WhatsApp Web browser engine (Chromium)...`);
             const client = new whatsapp_web_js_1.Client({
                 authStrategy: new whatsapp_web_js_1.LocalAuth({
@@ -254,14 +289,28 @@ class WhatsAppSessionEngine {
             if (currentDigits && (currentDigits === digits || currentDigits.endsWith(digits) || digits.endsWith(currentDigits))) {
                 throw new Error(`WhatsApp is already connected as +${digits}. No need to pair again!`);
             }
-            console.log(`[WhatsApp Worker] Switching WhatsApp account to +${digits}. Logging out existing session...`);
-            await this.logout(true);
-            await new Promise((r) => setTimeout(r, 1500));
+            console.log(`[WhatsApp Worker (${this.userId})] Switching WhatsApp account to +${digits}. Logging out existing session...`);
+            await this.logout(true, false);
+            await new Promise((r) => setTimeout(r, 1000));
         }
-        // Try direct pairing code on active QR page if available
-        if (this.client && this.state === 'QR_READY' && this.client.pupPage) {
+        // Ensure client is initialized
+        if (!this.client || this.state === 'DISCONNECTED') {
+            await this.initialize();
+        }
+        // If still connecting, wait for client to reach QR_READY or CONNECTED (up to 15s)
+        if (this.isConnecting || this.state === 'CONNECTING') {
+            const start = Date.now();
+            while ((this.isConnecting || this.state === 'CONNECTING') && Date.now() - start < 15000) {
+                await new Promise((r) => setTimeout(r, 500));
+            }
+        }
+        if (this.state === 'CONNECTED') {
+            return 'ALREADY_CONNECTED';
+        }
+        // Request pairing code directly from active WhatsApp Web page
+        if (this.client && this.client.pupPage) {
             try {
-                console.log(`[WhatsApp Worker] Requesting pairing code directly from active page for +${digits}...`);
+                console.log(`[WhatsApp Worker (${this.userId})] Requesting pairing code directly from active page for +${digits}...`);
                 this.state = 'WAITING_FOR_PAIRING';
                 const code = await this.client.requestPairingCode(digits);
                 if (code) {
@@ -270,26 +319,21 @@ class WhatsAppSessionEngine {
                 }
             }
             catch (err) {
-                console.warn(`[WhatsApp Worker] Direct requestPairingCode failed: ${err.message}. Restarting with pairWithPhoneNumber...`);
+                const errMsg = err?.message || String(err);
+                console.warn(`[WhatsApp Worker (${this.userId})] Pairing code request rejected: ${errMsg}`);
+                this.pairingCode = null;
+                if (this.qrCodeDataUrl) {
+                    this.state = 'QR_READY';
+                }
+                if (errMsg.includes('429') || errMsg.includes('overlimit') || errMsg.includes('CompanionHelloError') || errMsg.includes('t')) {
+                    throw new Error('WhatsApp servers are currently rate-limiting phone code requests (429). Please scan the QR Code on the QR tab instead to connect instantly!');
+                }
+                throw new Error(errMsg || 'Failed to generate pairing code. Please scan the QR code instead.');
             }
         }
-        if (this.pairingCodeWaiter) {
-            clearTimeout(this.pairingCodeWaiter.timeout);
-            this.pairingCodeWaiter = null;
-        }
-        const codePromise = new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-                if (this.pairingCodeWaiter) {
-                    this.pairingCodeWaiter = null;
-                    reject(new Error('Pairing code generation timed out. Please try again.'));
-                }
-            }, 60000);
-            this.pairingCodeWaiter = { resolve, reject, timeout };
-        });
-        await this.initialize(digits);
-        return codePromise;
+        throw new Error('WhatsApp Web engine is not ready. Please scan the QR code to connect.');
     }
-    async logout(clearCredentials = true) {
+    async logout(clearCredentials = true, autoRestart = false) {
         this.isExplicitLogout = true;
         if (this.reconnectTimer) {
             clearTimeout(this.reconnectTimer);
@@ -315,6 +359,8 @@ class WhatsAppSessionEngine {
             catch (_) { }
             this.client = null;
         }
+        // Terminate any lingering Chrome process for this user
+        this.killOrphanChromeProcesses();
         if (clearCredentials) {
             const authPath = this.getAuthPath();
             try {
@@ -327,10 +373,13 @@ class WhatsAppSessionEngine {
                 console.warn(`[WhatsApp Worker (${this.userId})] Failed to clear session files:`, err.message);
             }
         }
+        this.purgeLockFiles();
         this.isExplicitLogout = false;
-        setTimeout(() => {
-            this.initialize().catch(() => { });
-        }, 1000);
+        if (autoRestart) {
+            setTimeout(() => {
+                this.initialize().catch(() => { });
+            }, 1000);
+        }
     }
     /**
      * Send WhatsApp message with exact /whatsapp-mess parity
@@ -478,6 +527,8 @@ class WhatsAppSessionEngine {
             catch (_) { }
             this.client = null;
         }
+        this.killOrphanChromeProcesses();
+        this.purgeLockFiles();
         this.state = 'DISCONNECTED';
     }
     scheduleReconnect(delayMs) {
@@ -515,11 +566,19 @@ class MultiSessionManager {
     getSession(userId = 'default', autoCreate = true) {
         const cleanId = (userId || 'default').trim();
         let engine = this.sessions.get(cleanId);
-        if (!engine && autoCreate) {
-            engine = new WhatsAppSessionEngine(this.sessionDir, cleanId);
-            this.sessions.set(cleanId, engine);
+        if (!engine) {
+            if (autoCreate) {
+                engine = new WhatsAppSessionEngine(this.sessionDir, cleanId);
+                this.sessions.set(cleanId, engine);
+                engine.initialize().catch((err) => {
+                    console.error(`[MultiSessionManager] Auto-initialization error for user ${cleanId}:`, err.message);
+                });
+            }
+        }
+        else if (autoCreate && engine.getStatus().state === 'DISCONNECTED' && !engine.isClientConnecting()) {
+            console.log(`[MultiSessionManager] Session for user "${cleanId}" is DISCONNECTED. Auto-starting WhatsApp Web client...`);
             engine.initialize().catch((err) => {
-                console.error(`[MultiSessionManager] Auto-initialization error for user ${cleanId}:`, err.message);
+                console.error(`[MultiSessionManager] Re-initialization error for user ${cleanId}:`, err.message);
             });
         }
         return engine || null;
@@ -558,28 +617,14 @@ class MultiSessionManager {
         return null;
     }
     async autoRestoreSessions() {
+        // Lazy session restoration: only boot default/admin on startup to avoid spawning 10+ Chrome processes
+        // Each tenant's session is initialized on-demand when that tenant visits the portal.
         try {
-            if (!fs_1.default.existsSync(this.sessionDir))
-                return;
-            const entries = fs_1.default.readdirSync(this.sessionDir, { withFileTypes: true });
-            for (const entry of entries) {
-                if (!entry.isDirectory())
-                    continue;
-                if (entry.name === 'wwebjs_auth') {
-                    console.log('[MultiSessionManager] Found existing default session on disk. Restoring...');
-                    this.getSession('default', true);
-                }
-                else if (entry.name.startsWith('wwebjs_auth_')) {
-                    const uid = entry.name.replace('wwebjs_auth_', '').trim();
-                    if (uid) {
-                        console.log(`[MultiSessionManager] Found existing session for user "${uid}" on disk. Restoring...`);
-                        this.getSession(uid, true);
-                    }
-                }
-            }
+            console.log('[MultiSessionManager] Auto-restoring default admin session on boot...');
+            this.getSession('default', true);
         }
         catch (err) {
-            console.warn('[MultiSessionManager] Error auto-restoring sessions from disk:', err.message);
+            console.warn('[MultiSessionManager] Error auto-restoring default session from disk:', err.message);
         }
     }
 }

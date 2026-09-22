@@ -9,10 +9,15 @@ export const revalidate = 0;
 
 let isStarting = false;
 
-function ensureWorkerRunning() {
+async function ensureWorkerRunning() {
   if (isStarting) return;
   isStarting = true;
   setTimeout(() => { isStarting = false; }, 60000);
+
+  try {
+    const check = await fetch('http://localhost:5001/health', { signal: AbortSignal.timeout(1200) });
+    if (check.ok) return; // Already running, no need to spawn duplicate!
+  } catch (_) {}
 
   const serverScript = path.resolve(process.cwd(), 'services', 'whatsapp-service', 'dist', 'server.js');
   if (fs.existsSync(serverScript)) {
@@ -69,7 +74,43 @@ export async function GET(req: NextRequest) {
         resolvedServiceUrl: serviceUrl
       }, { headers: noCacheHeaders });
     }
+
+    // If remote gateway returned error (e.g. 530, 502) and we're not already on localhost, try local fallback
+    if (serviceUrl !== 'http://localhost:5001') {
+      try {
+        const localRes = await fetch('http://localhost:5001/status', {
+          headers: getWorkerHeaders(serviceSecret, userId),
+          signal: AbortSignal.timeout(3000),
+          cache: 'no-store'
+        });
+        if (localRes.ok) {
+          const data = await localRes.json();
+          return NextResponse.json({
+            ...data,
+            isWorkerOnline: true,
+            resolvedServiceUrl: 'http://localhost:5001'
+          }, { headers: noCacheHeaders });
+        }
+      } catch (_) {}
+    }
   } catch (err) {
+    if (serviceUrl !== 'http://localhost:5001') {
+      try {
+        const localRes = await fetch('http://localhost:5001/status', {
+          headers: getWorkerHeaders(serviceSecret, userId),
+          signal: AbortSignal.timeout(3000),
+          cache: 'no-store'
+        });
+        if (localRes.ok) {
+          const data = await localRes.json();
+          return NextResponse.json({
+            ...data,
+            isWorkerOnline: true,
+            resolvedServiceUrl: 'http://localhost:5001'
+          }, { headers: noCacheHeaders });
+        }
+      } catch (_) {}
+    }
     if (serviceUrl.includes('localhost') || serviceUrl.includes('127.0.0.1')) {
       ensureWorkerRunning();
     }

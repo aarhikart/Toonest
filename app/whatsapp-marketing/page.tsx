@@ -36,6 +36,7 @@ import { WhatsAppInfoSections } from '@/components/whatsapp-web/WhatsAppInfoSect
 import { WhatsAppTrialPopupModal } from '@/components/whatsapp-web/WhatsAppTrialPopupModal';
 import { WhatsAppPlansModal } from '@/components/whatsapp-web/WhatsAppPlansModal';
 import { WhatsAppRenewalModal } from '@/components/whatsapp-web/WhatsAppRenewalModal';
+import { PlanLimitsConfig, DEFAULT_PLAN_LIMITS } from '@/lib/whatsapp-web/limit-manager';
 
 interface CurrentUser {
   id: string;
@@ -63,6 +64,9 @@ export default function WhatsAppMarketingPage() {
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [adminViewMode, setAdminViewMode] = useState<'admin_center' | 'sender_studio'>('admin_center');
+
+  // Plan Limits Config State
+  const [planLimits, setPlanLimits] = useState<PlanLimitsConfig>(DEFAULT_PLAN_LIMITS);
 
   // Connection Session (Persistent across reloads & Vercel)
   const [session, setSession] = useState<WhatsAppWebSession>({
@@ -130,9 +134,22 @@ export default function WhatsAppMarketingPage() {
     }
   };
 
+  const fetchPlanLimits = async () => {
+    try {
+      const res = await fetch('/api/whatsapp/plan-limits');
+      const data = await res.json();
+      if (data.success && data.limits) {
+        setPlanLimits(data.limits);
+      }
+    } catch (err) {
+      console.error('Failed to load plan limits:', err);
+    }
+  };
+
   // Initialize from persistent storage & auth + default to dark theme on /whatsapp-marketing
   useEffect(() => {
     checkAuth();
+    fetchPlanLimits();
     try {
       const storedTheme = localStorage.getItem('toolnest_theme');
       if (storedTheme === 'light') {
@@ -339,6 +356,7 @@ export default function WhatsAppMarketingPage() {
             <WhatsAppUserBar
               user={currentUser}
               onLogout={handleLogout}
+              planLimits={planLimits}
               onOpenAdminCenter={
                 currentUser.role === 'admin' ? () => setAdminViewMode('admin_center') : undefined
               }
@@ -496,6 +514,8 @@ export default function WhatsAppMarketingPage() {
                 media={media}
                 onOpenGuide={() => setActiveGuideStep(4)}
                 userId={currentUser?.username?.toLowerCase()}
+                planLimits={planLimits}
+                currentUser={currentUser}
               />
             </section>
           </div>
@@ -522,6 +542,7 @@ export default function WhatsAppMarketingPage() {
           isOpen={isPlansModalOpen}
           onClose={() => setIsPlansModalOpen(false)}
           isLoggedIn={!!currentUser}
+          planLimits={planLimits}
           onSelectPlan={planKey => {
             setIsPlansModalOpen(false);
             setRenewalInitialPlan(planKey);
@@ -540,6 +561,7 @@ export default function WhatsAppMarketingPage() {
             onClose={() => setIsRenewalModalOpen(false)}
             currentUser={currentUser}
             initialPlan={renewalInitialPlan}
+            planLimits={planLimits}
             onRenewalSubmitted={() => {
               checkAuth();
             }}

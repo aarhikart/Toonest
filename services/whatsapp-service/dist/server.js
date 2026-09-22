@@ -118,7 +118,21 @@ app.post('/tunnel/stop', (req, res) => {
 // 1. Get Connection Status (State, QR code data url, user info) for specific tenant
 app.get('/status', verifySecret, (req, res) => {
     const userId = getUserId(req);
+    // Health check bypass: do NOT spawn a Chromium browser for gateway pings!
+    if (userId === 'gateway_health_check' || userId === 'system_ping' || userId === 'health') {
+        return res.json({
+            state: 'CONNECTED',
+            isConnected: true,
+            service: 'ToolNest WhatsApp Worker Gateway',
+            timestamp: new Date().toISOString()
+        });
+    }
+    const shouldRestart = req.query.restart === 'true';
     const engine = sessionManager.getSession(userId, true);
+    if (shouldRestart && engine) {
+        console.log(`[WhatsApp Worker (${userId})] /status with restart=true. Restarting session...`);
+        engine.logout(true, true).catch(() => { });
+    }
     if (!engine) {
         return res.json({
             state: 'DISCONNECTED',
@@ -161,7 +175,7 @@ app.post('/logout', verifySecret, async (req, res) => {
         const userId = getUserId(req);
         const engine = sessionManager.getSession(userId, false);
         if (engine) {
-            await engine.logout(true);
+            await engine.logout(true, false);
         }
         res.json({ success: true, message: `Logged out successfully for user ${userId}` });
     }
@@ -176,7 +190,7 @@ app.post('/restart', verifySecret, async (req, res) => {
         console.log(`[WhatsApp Worker (${userId})] /restart requested. Wiping session and restarting fresh QR handshake...`);
         const engine = sessionManager.getSession(userId, false);
         if (engine) {
-            await engine.logout(true);
+            await engine.logout(true, true);
         }
         else {
             sessionManager.getSession(userId, true);

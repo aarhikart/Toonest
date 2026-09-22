@@ -12,6 +12,7 @@ import {
   Table as TableIcon,
   LayoutGrid
 } from 'lucide-react';
+import { PlanLimitsConfig, DEFAULT_PLAN_LIMITS } from '@/lib/whatsapp-web/limit-manager';
 
 interface WhatsAppPlansModalProps {
   isOpen: boolean;
@@ -19,6 +20,7 @@ interface WhatsAppPlansModalProps {
   onSelectPlan?: (planType: '1_month' | '3_months' | '6_months') => void;
   onRequestTrial?: () => void;
   isLoggedIn?: boolean;
+  planLimits?: PlanLimitsConfig;
 }
 
 export const WhatsAppPlansModal: React.FC<WhatsAppPlansModalProps> = ({
@@ -26,9 +28,24 @@ export const WhatsAppPlansModal: React.FC<WhatsAppPlansModalProps> = ({
   onClose,
   onSelectPlan,
   onRequestTrial,
-  isLoggedIn = false
+  isLoggedIn = false,
+  planLimits
 }) => {
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
+  const [limits, setLimits] = useState<PlanLimitsConfig>(planLimits || DEFAULT_PLAN_LIMITS);
+
+  useEffect(() => {
+    if (planLimits) {
+      setLimits(planLimits);
+    } else if (isOpen) {
+      fetch('/api/whatsapp/plan-limits')
+        .then(r => r.json())
+        .then(data => {
+          if (data.success && data.limits) setLimits(data.limits);
+        })
+        .catch(() => {});
+    }
+  }, [planLimits, isOpen]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -48,11 +65,12 @@ export const WhatsAppPlansModal: React.FC<WhatsAppPlansModalProps> = ({
       duration: '10 Days',
       badge: 'Free Trial',
       badgeColor: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300',
-      dailyLimit: '100 / day',
+      dailyLimit: `${limits.trial} / day`,
       accounts: '1 Account',
       description: 'Experience all core features before deciding.',
       features: [
         '10 Days complete access',
+        `${limits.trial} messages / day limit`,
         'Send photos and PDF files',
         'Customer name tags {name}',
         'Safe anti-ban delay controls',
@@ -67,12 +85,12 @@ export const WhatsAppPlansModal: React.FC<WhatsAppPlansModalProps> = ({
       duration: '30 Days',
       badge: 'Starter',
       badgeColor: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
-      dailyLimit: '450 / day',
+      dailyLimit: `${limits['1_month']} / day`,
       accounts: '1 Account',
       description: 'Affordable plan for steady monthly outreach.',
       features: [
         'Unlimited* Bulk WhatsApp Messages',
-        '450 messages / day limit',
+        `${limits['1_month']} messages / day limit`,
         '1 WhatsApp Account connection',
         'Templates & Contact Import',
         'Realtime Sent / Failed Reports',
@@ -88,12 +106,12 @@ export const WhatsAppPlansModal: React.FC<WhatsAppPlansModalProps> = ({
       badge: 'Most Popular',
       badgeColor: 'bg-[#5722AF]/15 text-[#5722AF] dark:bg-[#5722AF]/30 dark:text-purple-300 border border-[#5722AF]/30',
       popular: true,
-      dailyLimit: '650 / day',
+      dailyLimit: `${limits['3_months']} / day`,
       accounts: '1 Account',
       description: 'Best choice for continuous business growth.',
       features: [
         'Unlimited* Bulk WhatsApp Messages',
-        '650 messages / day limit',
+        `${limits['3_months']} messages / day limit`,
         '1 WhatsApp Account connection',
         'Priority WhatsApp Support',
         'Templates & Contact Import',
@@ -108,12 +126,12 @@ export const WhatsAppPlansModal: React.FC<WhatsAppPlansModalProps> = ({
       duration: '180 Days',
       badge: 'Best Value',
       badgeColor: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
-      dailyLimit: '850 / day',
+      dailyLimit: `${limits['6_months']} / day (2 Accounts)`,
       accounts: '2 Accounts',
       description: 'Complete power suite with billing and customer tools.',
       features: [
         'Unlimited* Bulk WhatsApp Messages',
-        '850 messages / day limit',
+        `${limits['6_months']} messages / day limit`,
         '2 WhatsApp Accounts connection',
         '6-Month Invoicing & WhatsApp Delivery',
         'Advanced Customer Management',
@@ -127,7 +145,7 @@ export const WhatsAppPlansModal: React.FC<WhatsAppPlansModalProps> = ({
     { feature: 'Price', m1: '₹317', m3: '₹817', m6: '₹1,217', highlight: false },
     { feature: 'Plan Duration', m1: '30 Days', m3: '90 Days', m6: '180 Days', highlight: false },
     { feature: 'Bulk WhatsApp Messages', m1: 'Unlimited*', m3: 'Unlimited*', m6: 'Unlimited*', highlight: false },
-    { feature: 'Daily Sending Limit', m1: '450 / day', m3: '650 / day', m6: '850 / day', highlight: true },
+    { feature: 'Daily Sending Limit', m1: `${limits['1_month']} / day`, m3: `${limits['3_months']} / day`, m6: `${limits['6_months']} / day`, highlight: true },
     { feature: 'WhatsApp Account Connection', m1: '1 Account', m3: '1 Account', m6: '2 Accounts', highlight: true },
     { feature: 'Message Templates', m1: true, m3: true, m6: true, highlight: false },
     { feature: 'Contact Import', m1: true, m3: true, m6: true, highlight: false },

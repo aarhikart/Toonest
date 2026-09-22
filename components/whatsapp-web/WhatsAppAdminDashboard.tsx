@@ -35,11 +35,14 @@ import {
   Gift,
   CreditCard,
   Sparkles,
-  Smartphone
+  Smartphone,
+  Sliders,
+  Clock
 } from 'lucide-react';
 import { WhatsAppWebConnect } from './WhatsAppWebConnect';
 import { WhatsAppSessionManager } from '@/lib/whatsapp-web/session';
 import { WhatsAppWebSession } from '@/lib/whatsapp-web/types';
+import { PlanLimitsConfig, DEFAULT_PLAN_LIMITS } from '@/lib/whatsapp-web/limit-manager';
 
 interface ManagedUser {
   id: string;
@@ -117,12 +120,17 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
   adminUser
 }) => {
   const adminUid = (adminUser?.username || 'hitesh1720').toLowerCase();
-  const [activeTab, setActiveTab] = useState<'users' | 'campaigns' | 'trials' | 'renewals'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'campaigns' | 'trials' | 'renewals' | 'limits'>('users');
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [campaigns, setCampaigns] = useState<CampaignItem[]>([]);
   const [campaignSummary, setCampaignSummary] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedUserFilter, setSelectedUserFilter] = useState<string>('all');
+
+  // Plan Limits & Reset Window State
+  const [planLimits, setPlanLimits] = useState<PlanLimitsConfig>(DEFAULT_PLAN_LIMITS);
+  const [isLimitsSaving, setIsLimitsSaving] = useState(false);
+  const [limitsSuccessMsg, setLimitsSuccessMsg] = useState('');
 
   // Admin WhatsApp Session & Connect Modal State
   const [adminSession, setAdminSession] = useState<WhatsAppWebSession>(() =>
@@ -245,13 +253,13 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
     setIsGeneratingTunnel(true);
     setGatewayStatusMessage(null);
     try {
-      // Step 1: Request tunnel generation via Admin API route
+      // Step 1: Request tunnel generation via Admin API route (with autoSave: true)
       let generatedUrl = '';
       try {
         const res = await fetch('/api/admin/gateway/tunnel', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ force: false, autoSave: false })
+          body: JSON.stringify({ force: false, autoSave: true })
         });
         const data = await res.json();
         if (data.success && data.url) {
@@ -270,20 +278,31 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
           const directData = await directRes.json();
           if (directData.success && directData.url) {
             generatedUrl = directData.url;
+            // Synchronize with database
+            try {
+              await fetch('/api/admin/gateway', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ gatewayUrl: generatedUrl })
+              });
+            } catch {}
           }
         } catch {}
       }
 
       if (generatedUrl) {
         setGatewayInput(generatedUrl);
+        setGatewayUrl(generatedUrl);
+        setIsGatewayOnline(true);
+        await fetchGatewayInfo();
         setGatewayStatusMessage({
           type: 'success',
-          text: `⚡ Live Cloudflare Tunnel Generated: ${generatedUrl}. Click "Test & Set Gateway URL" to activate it for all users!`
+          text: `⚡ Live Cloudflare Tunnel Generated & Activated: ${generatedUrl}! All users are now connected.`
         });
       } else {
         setGatewayStatusMessage({
           type: 'error',
-          text: 'Unable to start Cloudflare tunnel. Please ensure `npm run whatsapp:worker` is running locally on your computer.'
+          text: 'Unable to reach local worker. Please double-click START_WHATSAPP_SYSTEM.bat on your laptop to start the worker daemon and tunnel.'
         });
       }
     } catch (err: any) {
@@ -357,6 +376,43 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
     }
   };
 
+  const fetchPlanLimits = async () => {
+    try {
+      const res = await fetch('/api/whatsapp/plan-limits');
+      const data = await res.json();
+      if (data.success && data.limits) {
+        setPlanLimits(data.limits);
+      }
+    } catch (err) {
+      console.error('Failed to fetch plan limits:', err);
+    }
+  };
+
+  const handleSavePlanLimits = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLimitsSaving(true);
+    setLimitsSuccessMsg('');
+    try {
+      const res = await fetch('/api/whatsapp/plan-limits', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(planLimits)
+      });
+      const data = await res.json();
+      if (data.success) {
+        setPlanLimits(data.limits);
+        setLimitsSuccessMsg('✓ Plan daily limits and reset window saved successfully!');
+        setTimeout(() => setLimitsSuccessMsg(''), 5000);
+      } else {
+        alert(data.error || 'Failed to save plan limits.');
+      }
+    } catch {
+      alert('Network error saving plan limits.');
+    } finally {
+      setIsLimitsSaving(false);
+    }
+  };
+
   const triggerReminderCheck = async () => {
     try {
       await fetch('/api/admin/subscriptions/check-reminders');
@@ -373,6 +429,7 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
       fetchGatewayInfo(),
       fetchTrialRequests(),
       fetchRenewalRequests(),
+      fetchPlanLimits(),
       triggerReminderCheck()
     ]);
     setIsLoading(false);
@@ -1092,6 +1149,17 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
                 </span>
               )}
             </button>
+            <button
+              onClick={() => setActiveTab('limits')}
+              className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                activeTab === 'limits'
+                  ? 'bg-white dark:bg-zinc-900 text-[#5722AF] dark:text-purple-300 shadow-2xs'
+                  : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+              }`}
+            >
+              <Sliders className="w-4 h-4" />
+              <span>Plan Limits &amp; Time Window</span>
+            </button>
           </div>
 
           {/* Right Action: Create User Modal trigger */}
@@ -1641,6 +1709,268 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
             )}
           </div>
         )}
+
+        {/* Tab View 5: Plan Limits & Reset Window Management */}
+        {activeTab === 'limits' && (
+          <div className="p-5 sm:p-6 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-200 dark:border-zinc-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-purple-100 dark:bg-purple-950/60 text-[#5722AF] dark:text-purple-300 flex items-center justify-center">
+                  <Sliders className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-zinc-900 dark:text-white">
+                    Manage Plan Daily Message Limits &amp; Reset Window
+                  </h3>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Configure maximum messages users can send per plan, and set the time duration (in hours) after which their limit resets.
+                  </p>
+                </div>
+              </div>
+
+              {limitsSuccessMsg && (
+                <div className="px-3.5 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-xs font-semibold flex items-center gap-1.5 animate-in fade-in">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{limitsSuccessMsg}</span>
+                </div>
+              )}
+            </div>
+
+            <form onSubmit={handleSavePlanLimits} className="space-y-6">
+              {/* Section 1: Message Limits for 4 Plans */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-xs font-bold text-zinc-800 dark:text-zinc-200 uppercase tracking-wider">
+                  <Zap className="w-4 h-4 text-[#5722AF] dark:text-purple-400" />
+                  <span>Daily Message Limits (per configured reset window)</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {/* Plan 1: 10-Day Free Trial */}
+                  <div className="p-4 rounded-2xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700/80 space-y-2 relative overflow-hidden">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300">10-Day Free Trial</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-zinc-200 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300">Free</span>
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          min="1"
+                          max="50000"
+                          value={planLimits.trial}
+                          onChange={e => setPlanLimits(prev => ({ ...prev, trial: Number(e.target.value) || 1 }))}
+                          className="w-full px-3 py-2 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 text-zinc-900 dark:text-white text-base font-bold focus:outline-none focus:ring-2 focus:ring-[#5722AF]"
+                          required
+                        />
+                        <span className="text-xs text-zinc-500 font-medium whitespace-nowrap">msgs</span>
+                      </div>
+                      <p className="text-[11px] text-zinc-400 mt-1">Default: 100 messages / period</p>
+                    </div>
+                  </div>
+
+                  {/* Plan 2: 1 Month Plan */}
+                  <div className="p-4 rounded-2xl bg-blue-50/40 dark:bg-blue-950/20 border border-blue-200/80 dark:border-blue-900/60 space-y-2 relative overflow-hidden">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-blue-900 dark:text-blue-300">1 Month Plan</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300">₹317</span>
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          min="1"
+                          max="50000"
+                          value={planLimits['1_month']}
+                          onChange={e => setPlanLimits(prev => ({ ...prev, '1_month': Number(e.target.value) || 1 }))}
+                          className="w-full px-3 py-2 rounded-xl bg-white dark:bg-zinc-900 border border-blue-200 dark:border-blue-800 text-zinc-900 dark:text-white text-base font-bold focus:outline-none focus:ring-2 focus:ring-blue-600"
+                          required
+                        />
+                        <span className="text-xs text-zinc-500 font-medium whitespace-nowrap">msgs</span>
+                      </div>
+                      <p className="text-[11px] text-zinc-400 mt-1">e.g. 450 or 650 messages / period</p>
+                    </div>
+                  </div>
+
+                  {/* Plan 3: 3 Months Plan */}
+                  <div className="p-4 rounded-2xl bg-purple-50/40 dark:bg-purple-950/20 border border-purple-200/80 dark:border-purple-900/60 space-y-2 relative overflow-hidden">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-purple-900 dark:text-purple-300">3 Months Plan</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#5722AF]/15 text-[#5722AF] dark:text-purple-300">₹817</span>
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          min="1"
+                          max="50000"
+                          value={planLimits['3_months']}
+                          onChange={e => setPlanLimits(prev => ({ ...prev, '3_months': Number(e.target.value) || 1 }))}
+                          className="w-full px-3 py-2 rounded-xl bg-white dark:bg-zinc-900 border border-purple-200 dark:border-purple-800 text-zinc-900 dark:text-white text-base font-bold focus:outline-none focus:ring-2 focus:ring-[#5722AF]"
+                          required
+                        />
+                        <span className="text-xs text-zinc-500 font-medium whitespace-nowrap">msgs</span>
+                      </div>
+                      <p className="text-[11px] text-zinc-400 mt-1">e.g. 650 messages / period</p>
+                    </div>
+                  </div>
+
+                  {/* Plan 4: 6 Months Plan */}
+                  <div className="p-4 rounded-2xl bg-emerald-50/40 dark:bg-emerald-950/20 border border-emerald-200/80 dark:border-emerald-900/60 space-y-2 relative overflow-hidden">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-emerald-900 dark:text-emerald-300">6 Months Plan</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300">₹1,217</span>
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          min="1"
+                          max="50000"
+                          value={planLimits['6_months']}
+                          onChange={e => setPlanLimits(prev => ({ ...prev, '6_months': Number(e.target.value) || 1 }))}
+                          className="w-full px-3 py-2 rounded-xl bg-white dark:bg-zinc-900 border border-emerald-200 dark:border-emerald-800 text-zinc-900 dark:text-white text-base font-bold focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                          required
+                        />
+                        <span className="text-xs text-zinc-500 font-medium whitespace-nowrap">msgs</span>
+                      </div>
+                      <p className="text-[11px] text-zinc-400 mt-1">e.g. 850 msgs / period (2 accounts)</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 2: Time Window / Reset Duration */}
+              <div className="p-5 rounded-2xl bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 space-y-4">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-5 h-5 text-[#5722AF] dark:text-purple-400" />
+                    <div>
+                      <h4 className="text-sm font-bold text-zinc-900 dark:text-white">
+                        Time Limit / Reset Window (in Hours)
+                      </h4>
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                        Defines how often the user’s sending quota resets.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Quick Select Buttons */}
+                  <div className="flex items-center gap-1.5 bg-white dark:bg-zinc-900 p-1 rounded-xl border border-zinc-200 dark:border-zinc-700">
+                    {[
+                      { hours: 12, label: '12 Hours' },
+                      { hours: 18, label: '18 Hours' },
+                      { hours: 24, label: '24 Hours (1 Day)' },
+                      { hours: 48, label: '48 Hours (2 Days)' }
+                    ].map(btn => (
+                      <button
+                        key={btn.hours}
+                        type="button"
+                        onClick={() => setPlanLimits(prev => ({ ...prev, resetHours: btn.hours }))}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                          planLimits.resetHours === btn.hours
+                            ? 'bg-[#5722AF] text-white shadow-2xs'
+                            : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+                        }`}
+                      >
+                        {btn.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="w-32">
+                    <input
+                      type="number"
+                      min="1"
+                      max="168"
+                      value={planLimits.resetHours}
+                      onChange={e => setPlanLimits(prev => ({ ...prev, resetHours: Number(e.target.value) || 1 }))}
+                      className="w-full px-3 py-2 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 text-zinc-900 dark:text-white font-bold text-sm focus:outline-none focus:ring-2 focus:ring-[#5722AF]"
+                      required
+                    />
+                  </div>
+                  <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-300">Hours per window</span>
+                </div>
+
+                <div className="p-3 rounded-xl bg-purple-50/50 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-800/50 text-xs text-purple-900 dark:text-purple-300 leading-relaxed">
+                  💡 <strong>How it works for users:</strong> If set to <strong>{planLimits.resetHours} hours</strong>, a user on the 10-Day Free Trial can send up to <strong>{planLimits.trial} messages</strong>. Once they reach {planLimits.trial}, sending pauses and they can send again after {planLimits.resetHours} hours. Delivered customer numbers are saved so duplicate messages are never delivered to the same contact!
+                </div>
+              </div>
+
+              {/* Section 3: Live Preview Table */}
+              <div className="space-y-2">
+                <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider">
+                  Live Preview across Website &amp; Modals:
+                </span>
+                <div className="overflow-x-auto rounded-2xl border border-zinc-200 dark:border-zinc-700">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-zinc-50 dark:bg-zinc-800/80 font-semibold text-zinc-600 dark:text-zinc-300 border-b border-zinc-200 dark:border-zinc-700">
+                      <tr>
+                        <th className="px-4 py-2.5">Plan Name</th>
+                        <th className="px-4 py-2.5">Price</th>
+                        <th className="px-4 py-2.5">Configured Limit</th>
+                        <th className="px-4 py-2.5">Reset Duration</th>
+                        <th className="px-4 py-2.5">Display on Pricing Page</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800 text-zinc-800 dark:text-zinc-200">
+                      <tr>
+                        <td className="px-4 py-2.5 font-bold">10-Day Free Trial</td>
+                        <td className="px-4 py-2.5">Free</td>
+                        <td className="px-4 py-2.5 font-semibold text-[#5722AF] dark:text-purple-300">{planLimits.trial} messages</td>
+                        <td className="px-4 py-2.5">{planLimits.resetHours} Hours</td>
+                        <td className="px-4 py-2.5 font-mono text-zinc-500">{planLimits.trial} / day</td>
+                      </tr>
+                      <tr>
+                        <td className="px-4 py-2.5 font-bold">1 Month Plan</td>
+                        <td className="px-4 py-2.5">₹317 / 30d</td>
+                        <td className="px-4 py-2.5 font-semibold text-blue-600 dark:text-blue-400">{planLimits['1_month']} messages</td>
+                        <td className="px-4 py-2.5">{planLimits.resetHours} Hours</td>
+                        <td className="px-4 py-2.5 font-mono text-zinc-500">{planLimits['1_month']} / day</td>
+                      </tr>
+                      <tr>
+                        <td className="px-4 py-2.5 font-bold">3 Months Plan</td>
+                        <td className="px-4 py-2.5">₹817 / 90d</td>
+                        <td className="px-4 py-2.5 font-semibold text-[#5722AF] dark:text-purple-300">{planLimits['3_months']} messages</td>
+                        <td className="px-4 py-2.5">{planLimits.resetHours} Hours</td>
+                        <td className="px-4 py-2.5 font-mono text-zinc-500">{planLimits['3_months']} / day</td>
+                      </tr>
+                      <tr>
+                        <td className="px-4 py-2.5 font-bold">6 Months Plan</td>
+                        <td className="px-4 py-2.5">₹1,217 / 180d</td>
+                        <td className="px-4 py-2.5 font-semibold text-emerald-600 dark:text-emerald-400">{planLimits['6_months']} messages</td>
+                        <td className="px-4 py-2.5">{planLimits.resetHours} Hours</td>
+                        <td className="px-4 py-2.5 font-mono text-zinc-500">{planLimits['6_months']} / day (2 Accounts)</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Submit Button */}
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="submit"
+                  disabled={isLimitsSaving}
+                  className="px-6 py-2.5 rounded-xl bg-[#5722AF] hover:bg-[#451890] text-white text-xs sm:text-sm font-semibold flex items-center gap-2 transition cursor-pointer shadow-md disabled:opacity-60"
+                >
+                  {isLimitsSaving ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Saving Plan Limits...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4" />
+                      <span>Save Plan Limits &amp; Time Window</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
       </div>
 
       {/* Modal: Create User */}
@@ -1950,9 +2280,9 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
                 </label>
                 <div className="grid grid-cols-3 gap-2">
                   {[
-                    { key: '1_month' as const, label: '1 Month', days: '30 Days', price: '₹317', limit: '450/day' },
-                    { key: '3_months' as const, label: '3 Months', days: '90 Days', price: '₹817', limit: '650/day' },
-                    { key: '6_months' as const, label: '6 Months', days: '180 Days', price: '₹1,217', limit: '850/day (2 Accounts)' }
+                    { key: '1_month' as const, label: '1 Month', days: '30 Days', price: '₹317', limit: `${planLimits['1_month']}/day` },
+                    { key: '3_months' as const, label: '3 Months', days: '90 Days', price: '₹817', limit: `${planLimits['3_months']}/day` },
+                    { key: '6_months' as const, label: '6 Months', days: '180 Days', price: '₹1,217', limit: `${planLimits['6_months']}/day (2 Accounts)` }
                   ].map(p => {
                     const isSelected = selectedPlanToActivate === p.key;
                     return (

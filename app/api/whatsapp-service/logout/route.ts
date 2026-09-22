@@ -9,10 +9,31 @@ export async function POST(req: NextRequest) {
   const userId = getWorkerUserId(req);
 
   try {
-    const res = await fetch(`${serviceUrl}/logout`, {
-      method: 'POST',
-      headers: getWorkerHeaders(serviceSecret, userId)
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${serviceUrl}/logout`, {
+        method: 'POST',
+        headers: getWorkerHeaders(serviceSecret, userId),
+        signal: AbortSignal.timeout(6000)
+      });
+      if (!res.ok && serviceUrl !== 'http://localhost:5001') {
+        res = await fetch('http://localhost:5001/logout', {
+          method: 'POST',
+          headers: getWorkerHeaders(serviceSecret, userId),
+          signal: AbortSignal.timeout(6000)
+        });
+      }
+    } catch (e) {
+      if (serviceUrl !== 'http://localhost:5001') {
+        res = await fetch('http://localhost:5001/logout', {
+          method: 'POST',
+          headers: getWorkerHeaders(serviceSecret, userId),
+          signal: AbortSignal.timeout(6000)
+        });
+      } else {
+        throw e;
+      }
+    }
 
     const rawText = await res.text();
     let data: any;
@@ -24,7 +45,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(data, { status: res.status });
   } catch (err: any) {
     return NextResponse.json(
-      { success: true, message: 'Logged out locally (worker unreachable)' },
+      { success: true, message: 'Logged out locally' },
       { status: 200 }
     );
   }

@@ -11,35 +11,43 @@ import {
 
 export const dynamic = 'force-dynamic';
 
-// Helper to ping the worker URL and measure response time
-async function testGatewayConnectivity(url: string): Promise<{ isOnline: boolean; pingMs: number; error?: string }> {
+// Helper to ping the worker URL and measure response time with retry for fresh tunnels
+async function testGatewayConnectivity(url: string, retries: number = 2): Promise<{ isOnline: boolean; pingMs: number; error?: string }> {
   const cleanUrl = url.trim().replace(/\/$/, '');
-  const start = Date.now();
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6000);
+  let lastError = '';
 
-    const res = await fetch(`${cleanUrl}/status`, {
-      headers: getWorkerHeaders(getWhatsAppServiceSecret(), 'gateway_health_check'),
-      signal: controller.signal,
-      cache: 'no-store'
-    });
-    clearTimeout(timeout);
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    const start = Date.now();
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 6000);
 
-    const pingMs = Date.now() - start;
-    if (res.ok) {
-      return { isOnline: true, pingMs };
-    } else {
-      return { isOnline: false, pingMs, error: `Worker replied with HTTP ${res.status}` };
+      const res = await fetch(`${cleanUrl}/health`, {
+        signal: controller.signal,
+        cache: 'no-store'
+      });
+      clearTimeout(timeout);
+
+      const pingMs = Date.now() - start;
+      if (res.ok) {
+        return { isOnline: true, pingMs };
+      } else {
+        lastError = `Worker replied with HTTP ${res.status}`;
+      }
+    } catch (err: any) {
+      lastError = err.name === 'AbortError' ? 'Connection timed out (6s)' : (err.message || 'Connection failed');
     }
-  } catch (err: any) {
-    const pingMs = Date.now() - start;
-    return {
-      isOnline: false,
-      pingMs,
-      error: err.name === 'AbortError' ? 'Connection timed out (6s)' : (err.message || 'Connection failed')
-    };
+
+    if (attempt < retries) {
+      await new Promise((r) => setTimeout(r, 1500));
+    }
   }
+
+  return {
+    isOnline: false,
+    pingMs: 0,
+    error: lastError
+  };
 }
 
 // GET: Check active Worker Gateway URL & live connectivity

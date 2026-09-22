@@ -9,17 +9,39 @@ export async function POST(req: NextRequest) {
   const userId = getWorkerUserId(req);
 
   try {
-    const body = await req.json();
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
+    const body = await req.json().catch(() => ({}));
 
-    const res = await fetch(`${serviceUrl}/pair`, {
-      method: 'POST',
-      headers: getWorkerHeaders(serviceSecret, userId),
-      body: JSON.stringify({ ...body, userId }),
-      signal: controller.signal
-    });
-    clearTimeout(timeout);
+    const tryRequest = async (url: string) => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 45000);
+      try {
+        const res = await fetch(`${url}/pair`, {
+          method: 'POST',
+          headers: getWorkerHeaders(serviceSecret, userId),
+          body: JSON.stringify({ ...body, userId }),
+          signal: controller.signal
+        });
+        clearTimeout(timeout);
+        return res;
+      } catch (e) {
+        clearTimeout(timeout);
+        throw e;
+      }
+    };
+
+    let res: Response;
+    try {
+      res = await tryRequest(serviceUrl);
+      if (!res.ok && res.status >= 500 && serviceUrl !== 'http://localhost:5001') {
+        res = await tryRequest('http://localhost:5001');
+      }
+    } catch (err) {
+      if (serviceUrl !== 'http://localhost:5001') {
+        res = await tryRequest('http://localhost:5001');
+      } else {
+        throw err;
+      }
+    }
 
     const rawText = await res.text();
     let data: any;

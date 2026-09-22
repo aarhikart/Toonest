@@ -13,6 +13,7 @@ import {
   Layers,
   ShieldCheck
 } from 'lucide-react';
+import { PlanLimitsConfig, DEFAULT_PLAN_LIMITS, WhatsAppLimitManager, CalculatedUsage } from '@/lib/whatsapp-web/limit-manager';
 
 interface WhatsAppUserBarProps {
   user: {
@@ -31,6 +32,7 @@ interface WhatsAppUserBarProps {
   onOpenAdminCenter?: () => void;
   onOpenRenewalModal?: (plan?: '1_month' | '3_months' | '6_months') => void;
   onOpenPlansModal?: () => void;
+  planLimits?: PlanLimitsConfig;
 }
 
 export const WhatsAppUserBar: React.FC<WhatsAppUserBarProps> = ({
@@ -38,11 +40,32 @@ export const WhatsAppUserBar: React.FC<WhatsAppUserBarProps> = ({
   onLogout,
   onOpenAdminCenter,
   onOpenRenewalModal,
-  onOpenPlansModal
+  onOpenPlansModal,
+  planLimits
 }) => {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [pastCampaigns, setPastCampaigns] = useState<any[]>([]);
   const [isLoadingCampaigns, setIsLoadingCampaigns] = useState(false);
+
+  const userLimit = WhatsAppLimitManager.getPlanLimit(
+    user.role,
+    user.subscriptionType,
+    user.planType,
+    planLimits
+  );
+
+  const [usage, setUsage] = useState<CalculatedUsage>(() =>
+    WhatsAppLimitManager.getUsage(user.username, userLimit, planLimits?.resetHours)
+  );
+
+  useEffect(() => {
+    const refresh = () => {
+      setUsage(WhatsAppLimitManager.getUsage(user.username, userLimit, planLimits?.resetHours));
+    };
+    refresh();
+    const timer = setInterval(refresh, 10000);
+    return () => clearInterval(timer);
+  }, [user.username, userLimit, planLimits?.resetHours]);
 
   const fetchUserCampaigns = async () => {
     setIsLoadingCampaigns(true);
@@ -128,6 +151,27 @@ export const WhatsAppUserBar: React.FC<WhatsAppUserBarProps> = ({
                       {user.isExpired
                         ? 'Plan Expired'
                         : `${planLabels[user.planType || '1_month'] || 'Paid'} Plan: ${user.daysRemaining ?? 0} days left`}
+                    </span>
+                  </span>
+                )}
+
+                {/* Daily Message Quota & Time Window Badge */}
+                {user.role !== 'admin' && (
+                  <span
+                    className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold inline-flex items-center gap-1 border ${
+                      usage.isLimitReached
+                        ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-900'
+                        : usage.remaining <= 10
+                        ? 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-900'
+                        : 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-900'
+                    }`}
+                    title={`Limit resets in ${usage.timeRemainingStr} (${usage.resetTimeFormatted})`}
+                  >
+                    <span>✉️</span>
+                    <span>
+                      {usage.isLimitReached
+                        ? `Limit Reached (Resets in ${usage.timeRemainingStr})`
+                        : `${usage.remaining}/${userLimit} msgs left (Resets in ${usage.timeRemainingStr})`}
                     </span>
                   </span>
                 )}

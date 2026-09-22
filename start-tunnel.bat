@@ -1,9 +1,19 @@
 @echo off
-title ToolNest WhatsApp Cloudflare Tunnel
-echo =======================================================
-echo Starting ToolNest WhatsApp Cloudflare Tunnel...
-echo Forwarding to local worker on port 5001
-echo =======================================================
+title ToolNest WhatsApp Service & Tunnel Launcher
+cd /d "%~dp0"
+
+echo ================================================================
+echo           TOOLNEST WHATSAPP SYSTEM & TUNNEL LAUNCHER
+echo ================================================================
 echo.
-npx cloudflared tunnel --url http://localhost:5001
-pause
+echo Starting WhatsApp Worker Daemon and Cloudflare Tunnel...
+echo.
+
+node scripts/start-whatsapp-system.js
+
+if %ERRORLEVEL% NEQ 0 (
+    echo.
+    echo [ERROR] System encountered an error.
+    echo Press any key to exit...
+    pause >nul
+)
