@@ -20,7 +20,7 @@ async function testGatewayConnectivity(url: string, retries: number = 2): Promis
     const start = Date.now();
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 6000);
+      const timeout = setTimeout(() => controller.abort(), 10000);
 
       const res = await fetch(`${cleanUrl}/health`, {
         signal: controller.signal,
@@ -35,11 +35,11 @@ async function testGatewayConnectivity(url: string, retries: number = 2): Promis
         lastError = `Worker replied with HTTP ${res.status}`;
       }
     } catch (err: any) {
-      lastError = err.name === 'AbortError' ? 'Connection timed out (6s)' : (err.message || 'Connection failed');
+      lastError = err.name === 'AbortError' ? 'Connection timed out (10s)' : (err.message || 'Connection failed');
     }
 
     if (attempt < retries) {
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise((r) => setTimeout(r, 2000));
     }
   }
 

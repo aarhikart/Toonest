@@ -166,7 +166,7 @@ app.post('/pair', verifySecret, async (req, res) => {
     }
     catch (err) {
         console.error(`[WhatsApp Worker (${getUserId(req)})] Pairing code generation error:`, err.message);
-        res.status(500).json({ success: false, error: err.message });
+        res.status(400).json({ success: false, error: err.message });
     }
 });
 // 3. Disconnect / Logout Session for specific tenant

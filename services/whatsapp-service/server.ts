@@ -179,7 +179,7 @@ app.post('/pair', verifySecret, async (req, res) => {
     res.json({ success: true, pairingCode: code, formattedCode, userId });
   } catch (err: any) {
     console.error(`[WhatsApp Worker (${getUserId(req)})] Pairing code generation error:`, err.message);
-    res.status(500).json({ success: false, error: err.message });
+    res.status(400).json({ success: false, error: err.message });
   }
 });
 

@@ -16,20 +16,18 @@ export async function POST(req: NextRequest) {
         headers: getWorkerHeaders(serviceSecret, userId),
         signal: AbortSignal.timeout(6000)
       });
-      if (!res.ok && serviceUrl !== 'http://localhost:5001') {
-        res = await fetch('http://localhost:5001/logout', {
-          method: 'POST',
-          headers: getWorkerHeaders(serviceSecret, userId),
-          signal: AbortSignal.timeout(6000)
-        });
-      }
-    } catch (e) {
-      if (serviceUrl !== 'http://localhost:5001') {
-        res = await fetch('http://localhost:5001/logout', {
-          method: 'POST',
-          headers: getWorkerHeaders(serviceSecret, userId),
-          signal: AbortSignal.timeout(6000)
-        });
+    } catch (e: any) {
+      const isLocalHostAllowed = !process.env.VERCEL && !process.env.AWS_REGION && serviceUrl !== 'http://localhost:5001';
+      if (isLocalHostAllowed) {
+        try {
+          res = await fetch('http://localhost:5001/logout', {
+            method: 'POST',
+            headers: getWorkerHeaders(serviceSecret, userId),
+            signal: AbortSignal.timeout(6000)
+          });
+        } catch {
+          throw e;
+        }
       } else {
         throw e;
       }

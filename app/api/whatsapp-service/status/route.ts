@@ -57,7 +57,7 @@ export async function GET(req: NextRequest) {
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000); // 8s timeout for cloud/tunnel workers
+    const timeout = setTimeout(() => controller.abort(), 25000); // 25s timeout for cloud/tunnel workers
 
     const res = await fetch(`${serviceUrl}/status`, {
       headers: getWorkerHeaders(serviceSecret, userId),
@@ -75,8 +75,9 @@ export async function GET(req: NextRequest) {
       }, { headers: noCacheHeaders });
     }
 
-    // If remote gateway returned error (e.g. 530, 502) and we're not already on localhost, try local fallback
-    if (serviceUrl !== 'http://localhost:5001') {
+    // Only attempt local fallback if running on local development machine (never on Vercel)
+    const isLocalHostAllowed = !process.env.VERCEL && !process.env.AWS_REGION && serviceUrl !== 'http://localhost:5001';
+    if (isLocalHostAllowed) {
       try {
         const localRes = await fetch('http://localhost:5001/status', {
           headers: getWorkerHeaders(serviceSecret, userId),
@@ -94,7 +95,8 @@ export async function GET(req: NextRequest) {
       } catch (_) {}
     }
   } catch (err) {
-    if (serviceUrl !== 'http://localhost:5001') {
+    const isLocalHostAllowed = !process.env.VERCEL && !process.env.AWS_REGION && serviceUrl !== 'http://localhost:5001';
+    if (isLocalHostAllowed) {
       try {
         const localRes = await fetch('http://localhost:5001/status', {
           headers: getWorkerHeaders(serviceSecret, userId),
@@ -111,7 +113,7 @@ export async function GET(req: NextRequest) {
         }
       } catch (_) {}
     }
-    if (serviceUrl.includes('localhost') || serviceUrl.includes('127.0.0.1')) {
+    if (!process.env.VERCEL && !process.env.AWS_REGION && (serviceUrl.includes('localhost') || serviceUrl.includes('127.0.0.1'))) {
       ensureWorkerRunning();
     }
   }

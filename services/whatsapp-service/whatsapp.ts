@@ -58,6 +58,7 @@ export class WhatsAppSessionEngine {
   private lastConnectedAt: string | null = null;
   private isConnecting: boolean = false;
   private isExplicitLogout: boolean = false;
+  private lastInitAttempt: number = 0;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private pairingCodeWaiter: {
     resolve: (code: string) => void;
@@ -113,16 +114,20 @@ export class WhatsAppSessionEngine {
     return this.isConnecting;
   }
 
+  public getLastInitAttempt(): number {
+    return this.lastInitAttempt;
+  }
+
   private killOrphanChromeProcesses(): void {
     if (process.platform !== 'win32') return;
     try {
-      const cleanPath = path.resolve(this.getAuthPath()).toLowerCase();
+      const folderName = path.basename(this.getAuthPath()).toLowerCase();
       const script = `
-        $target = ${JSON.stringify(cleanPath)}
+        $target = ${JSON.stringify(folderName)}
         Get-CimInstance Win32_Process -Filter "Name = 'chrome.exe'" | Where-Object {
           $_.CommandLine -and $_.CommandLine.ToLower().Contains($target)
         } | ForEach-Object {
-          Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+          cmd.exe /c "taskkill /PID $($_.ProcessId) /T /F"
         }
       `;
       const encoded = Buffer.from(script, 'utf16le').toString('base64');
@@ -172,6 +177,7 @@ export class WhatsAppSessionEngine {
 
     this.isConnecting = true;
     this.isExplicitLogout = false;
+    this.lastInitAttempt = Date.now();
     this.state = 'CONNECTING';
 
     try {
@@ -311,20 +317,23 @@ export class WhatsAppSessionEngine {
         this.pairingCodeWaiter.reject(new Error(err.message || 'Failed to initialize client'));
         this.pairingCodeWaiter = null;
       }
-      try {
-        const authPath = this.getAuthPath();
-        const sessionPath = path.join(authPath, 'session');
-        if (fs.existsSync(sessionPath)) {
-          const lockItems = ['DevToolsActivePort', 'lockfile', 'SingletonLock', 'SingletonCookie', 'SingletonSocket'];
-          for (const item of lockItems) {
-            const itemPath = path.join(sessionPath, item);
-            if (fs.existsSync(itemPath)) {
-              try { fs.unlinkSync(itemPath); } catch (_) {}
+      if (err.message && err.message.includes('The browser is already running')) {
+        console.warn(`[WhatsApp Worker (${this.userId})] Browser lock conflict detected. Terminating orphan processes and cleaning locks...`);
+        this.killOrphanChromeProcesses();
+        this.purgeLockFiles();
+        if (!this.user || !this.user.phoneNumber) {
+          try {
+            const authPath = this.getAuthPath();
+            if (fs.existsSync(authPath)) {
+              fs.rmSync(authPath, { recursive: true, force: true });
+              console.log(`[WhatsApp Worker (${this.userId})] Cleaned up unauthenticated session directory.`);
             }
-          }
+          } catch (_) {}
         }
-      } catch (_) {}
-      this.scheduleReconnect(8000);
+      } else {
+        this.purgeLockFiles();
+      }
+      this.scheduleReconnect(12000);
     } finally {
       this.isConnecting = false;
     }
@@ -656,10 +665,13 @@ export class MultiSessionManager {
         });
       }
     } else if (autoCreate && engine.getStatus().state === 'DISCONNECTED' && !engine.isClientConnecting()) {
-      console.log(`[MultiSessionManager] Session for user "${cleanId}" is DISCONNECTED. Auto-starting WhatsApp Web client...`);
-      engine.initialize().catch((err: any) => {
-        console.error(`[MultiSessionManager] Re-initialization error for user ${cleanId}:`, err.message);
-      });
+      const now = Date.now();
+      if (now - engine.getLastInitAttempt() > 10000) {
+        console.log(`[MultiSessionManager] Session for user "${cleanId}" is DISCONNECTED. Auto-starting WhatsApp Web client...`);
+        engine.initialize().catch((err: any) => {
+          console.error(`[MultiSessionManager] Re-initialization error for user ${cleanId}:`, err.message);
+        });
+      }
     }
     return engine || null;
   }

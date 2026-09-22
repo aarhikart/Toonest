@@ -40,12 +40,14 @@ export async function POST(req: NextRequest) {
     let res: Response;
     try {
       res = await trySend(serviceUrl);
-      if (!res.ok && res.status >= 500 && serviceUrl !== 'http://localhost:5001') {
-        res = await trySend('http://localhost:5001');
-      }
-    } catch (err) {
-      if (serviceUrl !== 'http://localhost:5001') {
-        res = await trySend('http://localhost:5001');
+    } catch (err: any) {
+      const isLocalHostAllowed = !process.env.VERCEL && !process.env.AWS_REGION && serviceUrl !== 'http://localhost:5001';
+      if (isLocalHostAllowed) {
+        try {
+          res = await trySend('http://localhost:5001');
+        } catch {
+          throw err;
+        }
       } else {
         throw err;
       }

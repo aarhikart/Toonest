@@ -130,6 +130,12 @@ export class TunnelManager {
       }
       this.child = null;
     }
+    if (process.platform === 'win32') {
+      try {
+        const { execSync } = require('child_process');
+        execSync('taskkill /IM cloudflared.exe /F', { stdio: 'ignore' });
+      } catch {}
+    }
     this.status = 'stopped';
     this.currentUrl = null;
     this.pendingPromise = null;
