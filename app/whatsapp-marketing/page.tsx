@@ -37,6 +37,7 @@ import { WhatsAppTrialPopupModal } from '@/components/whatsapp-web/WhatsAppTrial
 import { WhatsAppPlansModal } from '@/components/whatsapp-web/WhatsAppPlansModal';
 import { WhatsAppRenewalModal } from '@/components/whatsapp-web/WhatsAppRenewalModal';
 import { PlanLimitsConfig, DEFAULT_PLAN_LIMITS } from '@/lib/whatsapp-web/limit-manager';
+import { LocalMediaStorage } from '@/lib/whatsapp-web/media-storage';
 
 interface CurrentUser {
   id: string;
@@ -110,6 +111,11 @@ export default function WhatsAppMarketingPage() {
           if (savedTmpl) {
             setMessageTemplate(savedTmpl);
           }
+
+          // Restore saved media attachment from local storage
+          LocalMediaStorage.loadAttachment(username).then(savedMedia => {
+            if (savedMedia) setMedia(savedMedia);
+          });
         } catch {
           setContacts(WhatsAppSenderEngine.getSampleContacts());
         }
@@ -150,6 +156,9 @@ export default function WhatsAppMarketingPage() {
   useEffect(() => {
     checkAuth();
     fetchPlanLimits();
+    LocalMediaStorage.loadAttachment('guest').then(savedMedia => {
+      if (savedMedia) setMedia(savedMedia);
+    });
     try {
       const storedTheme = localStorage.getItem('toolnest_theme');
       if (storedTheme === 'light') {
@@ -208,14 +217,26 @@ export default function WhatsAppMarketingPage() {
     } catch {}
   };
 
+  const handleMediaChange = (newMedia: MediaAttachment | null) => {
+    setMedia(newMedia);
+    const username = currentUser?.username?.toLowerCase() || 'guest';
+    if (newMedia) {
+      LocalMediaStorage.saveAttachment(username, newMedia);
+    } else {
+      LocalMediaStorage.removeAttachment(username);
+    }
+  };
+
   const handleClearBrowserData = async () => {
     const confirmed = window.confirm(
-      'Are you sure you want to delete all stored browser data?\n\nThis will clear:\n• Active WhatsApp Worker Session (forces fresh QR code)\n• Saved Worker Gateway URLs\n• All Audience Contacts in localStorage\n• Message Templates & Drafts\n• Saved Session Cookies\n\nThe page will reset cleanly with a brand new QR Code.'
+      'Are you sure you want to delete all stored browser data?\n\nThis will clear:\n• Active WhatsApp Worker Session (forces fresh QR code)\n• Saved Worker Gateway URLs\n• All Audience Contacts in localStorage\n• Message Templates & Drafts\n• Saved Media Attachments\n• Saved Session Cookies\n\nThe page will reset cleanly with a brand new QR Code.'
     );
 
     if (!confirmed) return;
 
     try {
+      // Clear all local media attachments
+      await LocalMediaStorage.clearAllLocalMedia();
       // 1. Tell backend worker to logout and wipe session files
       const savedWorkerUrl = typeof window !== 'undefined' ? localStorage.getItem('toolnest_wa_worker_url') || '' : '';
       const headers: Record<string, string> = {};
@@ -315,6 +336,7 @@ export default function WhatsAppMarketingPage() {
             <WhatsAppAuthModal
               onLoginSuccess={user => {
                 setCurrentUser(user);
+                checkAuth();
                 const username = user.username.toLowerCase();
                 WhatsAppSessionManager.setUserId(username);
                 const userSession = WhatsAppSessionManager.getSession(username);
@@ -332,6 +354,10 @@ export default function WhatsAppMarketingPage() {
                   if (savedTmpl) {
                     setMessageTemplate(savedTmpl);
                   }
+
+                  LocalMediaStorage.loadAttachment(username).then(savedMedia => {
+                    if (savedMedia) setMedia(savedMedia);
+                  });
                 } catch {}
 
                 if (user.role === 'admin') {
@@ -481,7 +507,7 @@ export default function WhatsAppMarketingPage() {
                   delaySeconds={delaySeconds}
                   onDelayChange={setDelaySeconds}
                   media={media}
-                  onMediaChange={setMedia}
+                  onMediaChange={handleMediaChange}
                   previewContact={contacts[0]}
                   onOpenGuide={() => setActiveGuideStep(3)}
                 />

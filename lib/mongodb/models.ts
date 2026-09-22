@@ -142,8 +142,30 @@ const RenewalRequestSchema = new Schema<IRenewalRequest>({
   approvedAt: { type: Date }
 });
 
+export interface IUserQuota extends Document {
+  username: string;
+  userId?: mongoose.Types.ObjectId;
+  campaignStartedAt?: Date | null;
+  resetTime?: Date | null;
+  sentInWindow: number;
+  deliveredNumbers: string[];
+  updatedAt: Date;
+}
+
+const UserQuotaSchema = new Schema<IUserQuota>({
+  username: { type: String, required: true, unique: true, index: true, lowercase: true, trim: true },
+  userId: { type: Schema.Types.ObjectId, ref: 'User' },
+  campaignStartedAt: { type: Date, default: null },
+  resetTime: { type: Date, default: null },
+  sentInWindow: { type: Number, default: 0 },
+  deliveredNumbers: { type: [String], default: [] },
+  updatedAt: { type: Date, default: Date.now }
+});
+
 export const User = models.User || model<IUser>('User', UserSchema);
 export const Campaign = models.Campaign || model<ICampaign>('Campaign', CampaignSchema);
 export const SystemSetting = models.SystemSetting || model<ISystemSetting>('SystemSetting', SystemSettingSchema);
 export const TrialRequest = models.TrialRequest || model<ITrialRequest>('TrialRequest', TrialRequestSchema);
 export const RenewalRequest = models.RenewalRequest || model<IRenewalRequest>('RenewalRequest', RenewalRequestSchema);
+export const UserQuota = models.UserQuota || model<IUserQuota>('UserQuota', UserQuotaSchema);
+

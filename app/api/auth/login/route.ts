@@ -47,7 +47,11 @@ export async function POST(req: NextRequest) {
           businessName: admin.businessName || 'ToolNest Master Admin',
           phoneNumber: admin.phoneNumber || '+916263481054',
           role: 'admin',
-          status: 'active'
+          status: 'active',
+          subscriptionType: 'paid',
+          planType: '6_months',
+          daysRemaining: 999,
+          isExpired: false
         }
       });
 
@@ -102,6 +106,25 @@ export async function POST(req: NextRequest) {
       role: user.role
     });
 
+    const now = Date.now();
+    let daysRemaining: number | null = null;
+    let isExpired = false;
+
+    if (user.role === 'admin') {
+      daysRemaining = 999;
+      isExpired = false;
+    } else if (user.subscriptionType === 'paid' && user.planEndDate) {
+      const endMs = new Date(user.planEndDate).getTime();
+      const diffMs = endMs - now;
+      daysRemaining = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+      isExpired = diffMs <= 0;
+    } else if (user.subscriptionType === 'trial' && user.trialEndDate) {
+      const endMs = new Date(user.trialEndDate).getTime();
+      const diffMs = endMs - now;
+      daysRemaining = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+      isExpired = diffMs <= 0;
+    }
+
     const response = NextResponse.json({
       success: true,
       message: 'Login successful.',
@@ -111,7 +134,15 @@ export async function POST(req: NextRequest) {
         businessName: user.businessName,
         phoneNumber: user.phoneNumber,
         role: user.role,
-        status: user.status
+        status: user.status,
+        subscriptionType: user.subscriptionType || 'none',
+        planType: user.planType || null,
+        trialStartDate: user.trialStartDate ? user.trialStartDate.toISOString() : null,
+        trialEndDate: user.trialEndDate ? user.trialEndDate.toISOString() : null,
+        planStartDate: user.planStartDate ? user.planStartDate.toISOString() : null,
+        planEndDate: user.planEndDate ? user.planEndDate.toISOString() : null,
+        daysRemaining,
+        isExpired
       }
     });
 

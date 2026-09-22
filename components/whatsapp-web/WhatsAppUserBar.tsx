@@ -59,12 +59,31 @@ export const WhatsAppUserBar: React.FC<WhatsAppUserBarProps> = ({
   );
 
   useEffect(() => {
-    const refresh = () => {
-      setUsage(WhatsAppLimitManager.getUsage(user.username, userLimit, planLimits?.resetHours));
+    let isMounted = true;
+    const refresh = async () => {
+      // 1. Instant local render
+      const local = WhatsAppLimitManager.getUsage(user.username, userLimit, planLimits?.resetHours);
+      if (isMounted) setUsage(local);
+
+      // 2. Fetch latest shared quota from MongoDB across devices
+      if (user.username && user.username !== 'default') {
+        try {
+          const dbUsage = await WhatsAppLimitManager.fetchUsageFromDb(
+            user.username,
+            userLimit,
+            planLimits?.resetHours
+          );
+          if (isMounted) setUsage(dbUsage);
+        } catch (_) {}
+      }
     };
+
     refresh();
     const timer = setInterval(refresh, 10000);
-    return () => clearInterval(timer);
+    return () => {
+      isMounted = false;
+      clearInterval(timer);
+    };
   }, [user.username, userLimit, planLimits?.resetHours]);
 
   const fetchUserCampaigns = async () => {
@@ -165,13 +184,17 @@ export const WhatsAppUserBar: React.FC<WhatsAppUserBarProps> = ({
                         ? 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-900'
                         : 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-900'
                     }`}
-                    title={`Limit resets in ${usage.timeRemainingStr} (${usage.resetTimeFormatted})`}
+                    title={
+                      usage.isResetTimerActive
+                        ? `Limit reached. Resets on ${usage.resetTimeFormatted} (in ${usage.timeRemainingStr})`
+                        : `${usage.remaining}/${userLimit} messages remaining. Reset timer starts when limit is fully used.`
+                    }
                   >
                     <span>✉️</span>
                     <span>
-                      {usage.isLimitReached
-                        ? `Limit Reached (Resets in ${usage.timeRemainingStr})`
-                        : `${usage.remaining}/${userLimit} msgs left (Resets in ${usage.timeRemainingStr})`}
+                      {usage.isLimitReached && usage.isResetTimerActive
+                        ? `Limit Reached (Resets ${usage.resetTimeFormatted} - in ${usage.timeRemainingStr})`
+                        : `${usage.remaining}/${userLimit} msgs left`}
                     </span>
                   </span>
                 )}

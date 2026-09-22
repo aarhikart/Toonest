@@ -19,6 +19,59 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Server-side daily message quota verification across devices
+    if (userId && userId !== 'default') {
+      try {
+        const { connectToDatabase } = await import('@/lib/mongodb/client');
+        const { User, UserQuota, SystemSetting } = await import('@/lib/mongodb/models');
+        const { WhatsAppLimitManager, DEFAULT_PLAN_LIMITS } = await import('@/lib/whatsapp-web/limit-manager');
+        await connectToDatabase();
+
+        const userDoc = await User.findOne({ username: userId }).lean() as any;
+        if (userDoc?.role !== 'admin') {
+          const setting = await SystemSetting.findOne({ key: 'planLimitsConfig' }).lean() as any;
+          let planLimits = { ...DEFAULT_PLAN_LIMITS };
+          if (setting?.value) {
+            try { planLimits = { ...planLimits, ...JSON.parse(setting.value) }; } catch (_) {}
+          }
+          const userLimit = WhatsAppLimitManager.getPlanLimit(
+            userDoc?.role,
+            userDoc?.subscriptionType,
+            userDoc?.planType,
+            planLimits
+          );
+
+          const quotaDoc = await UserQuota.findOne({ username: userId });
+          const now = Date.now();
+          if (quotaDoc) {
+            const resetTimeMs = quotaDoc.resetTime ? new Date(quotaDoc.resetTime).getTime() : null;
+            if (resetTimeMs && now >= resetTimeMs) {
+              // Expired window, reset in database
+              quotaDoc.sentInWindow = 0;
+              quotaDoc.resetTime = null;
+              quotaDoc.campaignStartedAt = null;
+              quotaDoc.updatedAt = new Date();
+              await quotaDoc.save();
+            } else if (userLimit < 999999 && (quotaDoc.sentInWindow || 0) >= userLimit) {
+              const resetStr = resetTimeMs ? WhatsAppLimitManager.formatResetTime(resetTimeMs) : 'soon';
+              const timeStr = resetTimeMs ? ` (in ${WhatsAppLimitManager.formatTimeRemaining(resetTimeMs)})` : '';
+              return NextResponse.json(
+                {
+                  success: false,
+                  error: `Message quota of ${userLimit} messages reached for this window. You can send messages again on ${resetStr}${timeStr}.`,
+                  isLimitReached: true,
+                  resetTime: resetTimeMs
+                },
+                { status: 429 }
+              );
+            }
+          }
+        }
+      } catch (quotaErr) {
+        console.warn('[Send Quota Check Warning]:', quotaErr);
+      }
+    }
+
     const trySend = async (url: string) => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 25000);

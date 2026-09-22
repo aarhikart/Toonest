@@ -141,6 +141,8 @@ export const WhatsAppPlansModal: React.FC<WhatsAppPlansModalProps> = ({
     }
   ];
 
+  const availablePlans = isLoggedIn ? plans.filter(p => !p.isTrial) : plans;
+
   const comparisonRows = [
     { feature: 'Price', m1: '₹317', m3: '₹817', m6: '₹1,217', highlight: false },
     { feature: 'Plan Duration', m1: '30 Days', m3: '90 Days', m6: '180 Days', highlight: false },
@@ -252,8 +254,8 @@ export const WhatsAppPlansModal: React.FC<WhatsAppPlansModalProps> = ({
         <div className="flex-1 overflow-y-auto pr-1 relative z-10">
           {viewMode === 'cards' ? (
             /* Cards View */
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {plans.map((p, idx) => (
+            <div className={`grid grid-cols-1 sm:grid-cols-2 ${isLoggedIn ? 'lg:grid-cols-3' : 'lg:grid-cols-4'} gap-4`}>
+              {availablePlans.map((p, idx) => (
                 <div
                   key={idx}
                   className={`rounded-2xl p-4 flex flex-col justify-between space-y-4 border transition-all ${
@@ -423,13 +425,17 @@ export const WhatsAppPlansModal: React.FC<WhatsAppPlansModalProps> = ({
             <span>*Unlimited messaging is subject to daily anti-ban limits &amp; WhatsApp fair usage policy</span>
           </div>
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => handleAction(undefined, true)}
-              className="text-[#5722AF] dark:text-purple-300 font-semibold hover:underline cursor-pointer"
-            >
-              Need a 10-Day Trial? Click here
-            </button>
-            <span>•</span>
+            {!isLoggedIn && (
+              <>
+                <button
+                  onClick={() => handleAction(undefined, true)}
+                  className="text-[#5722AF] dark:text-purple-300 font-semibold hover:underline cursor-pointer"
+                >
+                  Need a 10-Day Trial? Click here
+                </button>
+                <span>•</span>
+              </>
+            )}
             <button
               onClick={onClose}
               className="text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 font-medium cursor-pointer"
