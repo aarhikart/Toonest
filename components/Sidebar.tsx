@@ -43,6 +43,7 @@ import {
   MessageSquare,
   Smartphone,
   Monitor,
+  Camera,
 } from 'lucide-react';
 
 
@@ -383,6 +384,14 @@ export function Sidebar({
       desc: 'Official Meta Cloud API campaign dispatcher, templates & audience manager',
       icon: <MessageSquare className="w-4 h-4" />,
       href: '/whatsapp-marketing',
+      badge: 'Available',
+    },
+    {
+      id: 'camera-connect',
+      name: 'Camera Connect Demo',
+      desc: 'Consent-based peer-to-peer WebRTC live mobile camera streaming & demo face analysis',
+      icon: <Camera className="w-4 h-4" />,
+      href: '/camera-connect',
       badge: 'Available',
     },
   ];
