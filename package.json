@@ -9,7 +9,8 @@
     "lint": "eslint",
     "whatsapp:worker": "cd services/whatsapp-service && node dist/server.js",
     "whatsapp:build": "cd services/whatsapp-service && npm run build",
-    "whatsapp:tunnel": "npx cloudflared tunnel --url http://localhost:5001"
+    "whatsapp:tunnel": "node scripts/start-whatsapp-system.js",
+    "whatsapp:tunnel:standalone": "npx cloudflared tunnel --url http://localhost:5001"
   },
   "dependencies": {
     "exifreader": "^4.44.1",
