@@ -57,7 +57,8 @@ export function probeVideo(filePath: string): Promise<VideoMetadataProbe> {
       filePath,
     ];
 
-    const proc = spawn(ffprobePath, args);
+    // @ts-ignore
+    const proc = spawn(/*turbopackIgnore: true*/ ffprobePath, args);
     let stdout = '';
     let stderr = '';
 
@@ -117,7 +118,8 @@ export function extractFrameAtTimestamp(
       outputJpgPath,
     ];
 
-    const proc = spawn(ffmpegPath, args);
+    // @ts-ignore
+    const proc = spawn(/*turbopackIgnore: true*/ ffmpegPath, args);
     let stderr = '';
     proc.on('error', (err) => reject(err));
     proc.stderr.on('data', (d) => (stderr += d.toString()));
@@ -212,7 +214,8 @@ export function processVideoTextRemoval(
     args.push('-movflags', '+faststart');
     args.push(outputVideoPath);
 
-    const proc = spawn(ffmpegPath, args);
+    // @ts-ignore
+    const proc = spawn(/*turbopackIgnore: true*/ ffmpegPath, args);
     let stderr = '';
     proc.on('error', (err) => reject(err));
     proc.stderr.on('data', (d) => (stderr += d.toString()));

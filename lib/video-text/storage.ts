@@ -77,7 +77,8 @@ export function cleanupVideoTextSession(sessionId: string): boolean {
   const paths = getVideoTextSessionPaths(sessionId);
   if (!paths) return false;
   try {
-    if (fs.existsSync(paths.sessionDir)) {
+    // @ts-ignore
+    if (fs.existsSync(/*turbopackIgnore: true*/ paths.sessionDir)) {
       fs.rmSync(paths.sessionDir, { recursive: true, force: true });
     }
     return true;

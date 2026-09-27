@@ -202,7 +202,7 @@ export default function WatchTogetherHubPage() {
           </h1>
 
           <p className="text-sm sm:text-base text-zinc-600 dark:text-zinc-400 max-w-xl mx-auto">
-            Stream movies, series, and videos with friends in real-time. Native peer-to-peer screen sharing with stereo audio and zero lag.
+           HP Stream movies, series, and videos with friends in real-time. Native peer-to-peer screen sharing with stereo audio and zero lag.
           </p>
 
           <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
