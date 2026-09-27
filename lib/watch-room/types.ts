@@ -20,6 +20,7 @@ export interface WatchSignalMessage {
     | 'webrtc:offer'
     | 'webrtc:answer'
     | 'webrtc:ice-candidate'
+    | 'webrtc:request-stream'
     | 'screenshare:started'
     | 'screenshare:stopped'
     | 'room:sync';

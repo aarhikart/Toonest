@@ -338,8 +338,9 @@ export class WatchRoomManager {
     const now = Date.now();
     const cleanName = displayName.trim() || (isHost ? 'Host' : 'Friend');
 
-    const shouldBeHost = isHost || room.hostPeerId === peerId || !room.hostPeerId;
-    if (shouldBeHost && (!room.hostPeerId || room.hostPeerId === peerId)) {
+    // Only assign as host if explicitly isHost: true or already matches hostPeerId
+    const shouldBeHost = Boolean(isHost || (room.hostPeerId && room.hostPeerId === peerId));
+    if (isHost) {
       room.hostPeerId = peerId;
       room.hostName = cleanName;
     }

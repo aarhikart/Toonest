@@ -27,6 +27,7 @@ import {
   Crown,
   Radio,
   ExternalLink,
+  RefreshCw,
 } from 'lucide-react';
 import {
   SerializedWatchRoom,
@@ -134,11 +135,15 @@ export default function WatchRoomPage({
         const savedName = localStorage.getItem(`watch_name_${roomId}`);
         const savedIsHost = localStorage.getItem(`watch_host_${roomId}`) === '1';
 
+        // Check if role is explicitly viewer from share link
+        const isExplicitViewer = urlParams.get('role') === 'viewer';
+
+        // A user is ONLY the host if they created the room in this browser (savedIsHost)
+        // or have matching savedPeerId === roomData.hostPeerId.
+        // Opening the link on a phone or other device makes them a VIEWER!
         const isUserHost =
-          queryIsHost ||
-          savedIsHost ||
-          (savedPeerId && roomData.hostPeerId === savedPeerId) ||
-          !roomData.hostPeerId;
+          !isExplicitViewer &&
+          Boolean(savedIsHost || (savedPeerId && roomData.hostPeerId && savedPeerId === roomData.hostPeerId));
 
         setIsHost(isUserHost);
 
@@ -153,12 +158,13 @@ export default function WatchRoomPage({
           await joinRoomInternal(pId, nameToUse, true);
         } else if (savedPeerId) {
           setMyPeerId(savedPeerId);
-          const nameToUse = savedName || 'Guest';
+          const nameToUse = savedName || 'Viewer';
           setMyDisplayName(nameToUse);
           await joinRoomInternal(savedPeerId, nameToUse, false);
         } else {
-          // Participant joining via direct link -> show Join Modal
-          if (savedName) setJoinModalName(savedName);
+          // Participant / Viewer joining via link -> pre-populate friendly viewer name
+          const defaultViewerName = savedName || `Viewer ${Math.floor(100 + Math.random() * 900)}`;
+          setJoinModalName(defaultViewerName);
         }
 
         setIsLoadingRoom(false);
@@ -202,7 +208,7 @@ export default function WatchRoomPage({
 
   const handleJoinModalSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const name = joinModalName.trim() || 'Friend';
+    const name = joinModalName.trim() || 'Viewer';
     const newPeerId = `peer_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
     localStorage.setItem(`watch_peer_${roomId}`, newPeerId);
@@ -213,6 +219,13 @@ export default function WatchRoomPage({
     setIsHost(false);
 
     await joinRoomInternal(newPeerId, name, false);
+
+    // Prompt host to establish stream transmission right away
+    postSignal({
+      toPeerId: 'all',
+      type: 'webrtc:request-stream',
+      payload: { peerId: newPeerId, displayName: name },
+    });
   };
 
   // 2. Signaling Polling Loop
@@ -262,12 +275,12 @@ export default function WatchRoomPage({
 
     // CASE A: HOST handling incoming signals from participants
     if (isHost) {
-      if (signal.type === 'peer:join') {
-        const peer = signal.payload?.peer;
-        if (peer && peer.id !== myPeerId) {
-          // If host is already sharing screen, establish WebRTC connection to new participant
+      if (signal.type === 'peer:join' || signal.type === 'webrtc:request-stream') {
+        const targetId = signal.type === 'peer:join' ? signal.payload?.peer?.id : signal.fromPeerId;
+        if (targetId && targetId !== myPeerId) {
+          // If host is already sharing screen, establish WebRTC connection to participant
           if (localStreamRef.current) {
-            await createHostPeerConnection(peer.id, localStreamRef.current);
+            await createHostPeerConnection(targetId, localStreamRef.current);
           }
         }
       } else if (signal.type === 'webrtc:answer') {
@@ -315,6 +328,13 @@ export default function WatchRoomPage({
         if (signal.payload?.sdp) {
           await handleHostOffer(signal.fromPeerId, signal.payload.sdp);
         }
+      } else if (signal.type === 'screenshare:started') {
+        // Host started sharing screen! Immediately request the stream
+        postSignal({
+          toPeerId: signal.fromPeerId || 'all',
+          type: 'webrtc:request-stream',
+          payload: { peerId: myPeerId },
+        });
       } else if (signal.type === 'webrtc:ice-candidate') {
         const pc = participantPeerConnectionRef.current;
         if (pc && signal.payload?.candidate) {
@@ -399,7 +419,15 @@ export default function WatchRoomPage({
       if (event.streams && event.streams[0]) {
         if (videoPlayerRef.current) {
           videoPlayerRef.current.srcObject = event.streams[0];
-          videoPlayerRef.current.play().catch((e) => console.log('Autoplay handled:', e));
+          videoPlayerRef.current.playsInline = true;
+          videoPlayerRef.current.play().catch(() => {
+            // If browser blocks unmuted autoplay, mute and continue playing
+            if (videoPlayerRef.current) {
+              videoPlayerRef.current.muted = true;
+              setIsMuted(true);
+              videoPlayerRef.current.play().catch(() => {});
+            }
+          });
         }
         setWebrtcStatus('connected');
       }
@@ -518,11 +546,12 @@ export default function WatchRoomPage({
       });
 
       // Send offers to all currently connected peers in room
-      if (room?.peers) {
-        for (const peer of room.peers) {
-          if (peer.id !== myPeerId && peer.connected) {
-            await createHostPeerConnection(peer.id, stream);
-          }
+      const latestRes = await fetch(`/api/watch-room/${roomId}`).catch(() => null);
+      const latestData = latestRes ? await latestRes.json().catch(() => null) : null;
+      const peersToConnect = latestData?.room?.peers || room?.peers || [];
+      for (const peer of peersToConnect) {
+        if (peer.id !== myPeerId && peer.connected) {
+          await createHostPeerConnection(peer.id, stream);
         }
       }
     } catch (err: any) {
@@ -598,6 +627,7 @@ export default function WatchRoomPage({
   // Copy share link
   const handleCopyLink = () => {
     const params = new URLSearchParams();
+    params.set('role', 'viewer');
     if (room?.platform) params.set('platform', room.platform);
     if (room?.title) params.set('title', room.title);
     if (room?.hostName) params.set('host', room.hostName);
@@ -734,22 +764,25 @@ export default function WatchRoomPage({
             </p>
           </div>
 
+          <div className="p-3.5 rounded-2xl bg-[#5722AF]/10 border border-[#5722AF]/25 text-xs text-purple-200 text-center leading-relaxed">
+            You are joining as a <strong>Viewer</strong> to watch the live screen stream shared by <strong>@{room.hostName}</strong>.
+          </div>
+
           <form onSubmit={handleJoinModalSubmit} className="space-y-4">
             <div className="space-y-1.5">
               <label
                 htmlFor="guest-input-name"
                 className="block text-xs font-bold text-zinc-300 uppercase tracking-wider"
               >
-                Enter Your Display Name
+                Your Display Name (Viewer)
               </label>
               <input
                 id="guest-input-name"
                 type="text"
-                required
                 autoFocus
                 value={joinModalName}
                 onChange={(e) => setJoinModalName(e.target.value)}
-                placeholder="e.g. Rahul, Amit, Neha"
+                placeholder="e.g. Viewer, Rahul, Neha"
                 className="w-full px-4 py-3 rounded-2xl bg-zinc-800 border border-zinc-700 text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-[#5722AF] text-sm"
               />
             </div>
@@ -759,12 +792,12 @@ export default function WatchRoomPage({
               className="w-full py-3.5 px-6 rounded-2xl bg-[#5722AF] hover:bg-[#682BC9] text-white font-bold text-sm shadow-lg shadow-[#5722AF]/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
             >
               <Play className="w-4 h-4 fill-current" />
-              <span>Join Cinema Session</span>
+              <span>Watch Shared Screen Now</span>
             </button>
           </form>
 
           <div className="text-[11px] text-zinc-500 text-center leading-relaxed">
-            By joining, you will connect directly to the host's screen share stream via WebRTC. No account required.
+            Direct peer-to-peer WebRTC connection. No account required.
           </div>
         </div>
       </div>
@@ -918,23 +951,46 @@ export default function WatchRoomPage({
               </div>
             )}
 
-            {/* Standby UI: Participant when host is not sharing */}
+            {/* Standby UI: Participant when host is not sharing or stream connecting */}
             {!isHost && webrtcStatus !== 'connected' && (
               <div className="p-6 sm:p-8 text-center space-y-4 max-w-md">
-                <div className="w-16 h-16 rounded-3xl bg-zinc-900 border border-zinc-800 text-zinc-500 flex items-center justify-center mx-auto">
+                <div className="w-16 h-16 rounded-3xl bg-zinc-900 border border-zinc-800 text-[#9B6BE8] flex items-center justify-center mx-auto shadow-inner">
                   <Tv className="w-8 h-8 animate-pulse" />
                 </div>
 
                 <div className="space-y-1.5">
-                  <h3 className="text-lg font-bold text-white">Waiting for Screen Share</h3>
+                  <h3 className="text-lg font-bold text-white">
+                    {room.isScreenSharing ? 'Connecting to Stream...' : 'Waiting for Screen Share'}
+                  </h3>
                   <p className="text-xs text-zinc-400">
-                    Host <span className="font-semibold text-zinc-200">@{room.hostName}</span> has not started sharing their screen yet. Sit back with your popcorn!
+                    {room.isScreenSharing
+                      ? `Host @${room.hostName} is sharing their screen. Connecting your cinema stream...`
+                      : `Host @${room.hostName} has not started sharing their screen yet. Sit back with your popcorn!`}
                   </p>
                 </div>
 
-                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-900 border border-zinc-800 text-xs text-zinc-400">
-                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
-                  <span>Connecting to room signaling...</span>
+                <div className="flex flex-col items-center gap-2.5">
+                  <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-900 border border-zinc-800 text-xs text-zinc-400">
+                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+                    <span>
+                      {room.isScreenSharing ? 'Negotiating P2P WebRTC stream...' : 'Connected to room signaling'}
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      postSignal({
+                        toPeerId: room.hostPeerId || 'all',
+                        type: 'webrtc:request-stream',
+                        payload: { peerId: myPeerId },
+                      });
+                    }}
+                    className="px-3.5 py-1.5 rounded-xl bg-zinc-800/90 hover:bg-zinc-700 text-xs text-zinc-300 font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 text-[#9B6BE8]" />
+                    <span>Request / Refresh Stream</span>
+                  </button>
                 </div>
               </div>
             )}

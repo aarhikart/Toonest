@@ -126,7 +126,6 @@ export default function WatchTogetherHubPage() {
       }
 
       const params = new URLSearchParams();
-      params.set('isHost', '1');
       params.set('platform', selectedPlatform);
       params.set('host', hostName.trim());
       if (roomTitle.trim()) {
