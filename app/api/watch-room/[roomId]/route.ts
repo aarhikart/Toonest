@@ -16,7 +16,7 @@ export async function GET(
     const host = searchParams.get('host') || undefined;
 
     // Retrieve or auto-provision room so valid room links NEVER 404
-    const room = WatchRoomManager.getOrCreateRoom(roomId, {
+    const room = await WatchRoomManager.getOrCreateRoom(roomId, {
       platform,
       title,
       hostName: host,
@@ -31,7 +31,7 @@ export async function GET(
 
     return NextResponse.json({
       success: true,
-      room: WatchRoomManager.serializeRoom(room),
+      room,
     });
   } catch (err: any) {
     console.error('[API /api/watch-room/[roomId]] Error:', err);

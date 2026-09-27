@@ -16,7 +16,7 @@ export async function POST(
     const displayName = body.displayName?.trim() || 'Friend';
     const isHost = Boolean(body.isHost);
 
-    const result = WatchRoomManager.joinRoom(roomId, peerId, displayName, isHost);
+    const result = await WatchRoomManager.joinRoom(roomId, peerId, displayName, isHost);
 
     if (!result.success) {
       return NextResponse.json(

@@ -71,9 +71,12 @@ export default function WatchRoomPage({
   >('idle');
   const [shareError, setShareError] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [hasRemoteStream, setHasRemoteStream] = useState(false);
+  const [needsUserUnmute, setNeedsUserUnmute] = useState(false);
 
   // Refs
   const localStreamRef = useRef<MediaStream | null>(null);
+  const remoteStreamRef = useRef<MediaStream | null>(null);
   const videoPlayerRef = useRef<HTMLVideoElement | null>(null);
   const theaterContainerRef = useRef<HTMLDivElement | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
@@ -269,6 +272,23 @@ export default function WatchRoomPage({
     };
   }, [isJoined, myPeerId, roomId]);
 
+  // Stream recovery for viewers: If host is screen sharing but viewer hasn't received tracks yet
+  useEffect(() => {
+    if (isHost || !isJoined || !room?.isScreenSharing || hasRemoteStream || webrtcStatus === 'connected') {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      postSignal({
+        toPeerId: room.hostPeerId || 'all',
+        type: 'webrtc:request-stream',
+        payload: { peerId: myPeerId },
+      });
+    }, 3500);
+
+    return () => clearInterval(interval);
+  }, [isHost, isJoined, room?.isScreenSharing, room?.hostPeerId, hasRemoteStream, webrtcStatus, myPeerId]);
+
   // 3. Handle WebRTC Signaling Messages
   const handleIncomingSignal = async (signal: WatchSignalMessage) => {
     const iceServers = getWatchIceServers();
@@ -291,7 +311,7 @@ export default function WatchRoomPage({
             // Drain any queued ICE candidates
             const queued = candidateQueuesRef.current.get(signal.fromPeerId) || [];
             for (const cand of queued) {
-              await pc.addIceCandidate(new RTCIceCandidate(cand));
+              await pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {});
             }
             candidateQueuesRef.current.delete(signal.fromPeerId);
           } catch (e) {
@@ -303,7 +323,7 @@ export default function WatchRoomPage({
         if (pc && signal.payload?.candidate) {
           try {
             if (pc.remoteDescription && pc.remoteDescription.type) {
-              await pc.addIceCandidate(new RTCIceCandidate(signal.payload.candidate));
+              await pc.addIceCandidate(new RTCIceCandidate(signal.payload.candidate)).catch(() => {});
             } else {
               const q = candidateQueuesRef.current.get(signal.fromPeerId) || [];
               q.push(signal.payload.candidate);
@@ -340,7 +360,7 @@ export default function WatchRoomPage({
         if (pc && signal.payload?.candidate) {
           try {
             if (pc.remoteDescription && pc.remoteDescription.type) {
-              await pc.addIceCandidate(new RTCIceCandidate(signal.payload.candidate));
+              await pc.addIceCandidate(new RTCIceCandidate(signal.payload.candidate)).catch(() => {});
             } else {
               const q = candidateQueuesRef.current.get('host') || [];
               q.push(signal.payload.candidate);
@@ -352,8 +372,14 @@ export default function WatchRoomPage({
         }
       } else if (signal.type === 'screenshare:stopped') {
         setWebrtcStatus('idle');
+        setHasRemoteStream(false);
+        setNeedsUserUnmute(false);
         if (videoPlayerRef.current) {
           videoPlayerRef.current.srcObject = null;
+        }
+        if (participantPeerConnectionRef.current) {
+          participantPeerConnectionRef.current.close();
+          participantPeerConnectionRef.current = null;
         }
       }
     }
@@ -416,20 +442,34 @@ export default function WatchRoomPage({
     participantPeerConnectionRef.current = pc;
 
     pc.ontrack = (event) => {
-      if (event.streams && event.streams[0]) {
-        if (videoPlayerRef.current) {
-          videoPlayerRef.current.srcObject = event.streams[0];
-          videoPlayerRef.current.playsInline = true;
-          videoPlayerRef.current.play().catch(() => {
-            // If browser blocks unmuted autoplay, mute and continue playing
+      let stream = event.streams && event.streams[0];
+      if (!stream) {
+        if (!remoteStreamRef.current) {
+          remoteStreamRef.current = new MediaStream();
+        }
+        remoteStreamRef.current.addTrack(event.track);
+        stream = remoteStreamRef.current;
+      }
+
+      setHasRemoteStream(true);
+      setWebrtcStatus('connected');
+
+      if (videoPlayerRef.current) {
+        videoPlayerRef.current.srcObject = stream;
+        videoPlayerRef.current.playsInline = true;
+
+        const playPromise = videoPlayerRef.current.play();
+        if (playPromise !== undefined) {
+          playPromise.catch((err) => {
+            console.warn('Autoplay unmuted blocked by browser policy, attempting muted playback:', err);
             if (videoPlayerRef.current) {
               videoPlayerRef.current.muted = true;
               setIsMuted(true);
-              videoPlayerRef.current.play().catch(() => {});
+              setNeedsUserUnmute(true);
+              videoPlayerRef.current.play().catch((e) => console.error('Muted play also failed:', e));
             }
           });
         }
-        setWebrtcStatus('connected');
       }
     };
 
@@ -457,7 +497,7 @@ export default function WatchRoomPage({
       // Drain queued host ICE candidates
       const queued = candidateQueuesRef.current.get('host') || [];
       for (const cand of queued) {
-        await pc.addIceCandidate(new RTCIceCandidate(cand));
+        await pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {});
       }
       candidateQueuesRef.current.delete('host');
 
@@ -849,7 +889,7 @@ export default function WatchRoomPage({
         <div className="flex items-center gap-2 sm:gap-3">
           {/* Live Indicator */}
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-zinc-800/80 border border-zinc-700/60 text-xs">
-            {isSharing || webrtcStatus === 'connected' ? (
+            {isSharing || hasRemoteStream || webrtcStatus === 'connected' ? (
               <>
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                 <span className="font-semibold text-emerald-400 text-[11px]">LIVE</span>
@@ -907,9 +947,28 @@ export default function WatchRoomPage({
               autoPlay
               playsInline
               className={`w-full h-full object-contain ${
-                isSharing || webrtcStatus === 'connected' ? 'block' : 'hidden'
+                isSharing || hasRemoteStream || webrtcStatus === 'connected' ? 'block' : 'hidden'
               }`}
             />
+
+            {/* Mobile Unmute Overlay if sound was blocked by browser policy */}
+            {needsUserUnmute && !isHost && hasRemoteStream && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (videoPlayerRef.current) {
+                    videoPlayerRef.current.muted = false;
+                    setIsMuted(false);
+                    setNeedsUserUnmute(false);
+                    videoPlayerRef.current.play().catch(() => {});
+                  }
+                }}
+                className="absolute top-4 left-1/2 -translate-x-1/2 z-20 px-4 py-2 rounded-2xl bg-[#5722AF] hover:bg-[#682BC9] text-white text-xs font-bold shadow-xl shadow-black/60 flex items-center gap-2 animate-bounce cursor-pointer backdrop-blur-md"
+              >
+                <Volume2 className="w-4 h-4" />
+                <span>Tap to Unmute Audio</span>
+              </button>
+            )}
 
             {/* Standby UI: Host when not sharing */}
             {isHost && !isSharing && (
@@ -952,7 +1011,7 @@ export default function WatchRoomPage({
             )}
 
             {/* Standby UI: Participant when host is not sharing or stream connecting */}
-            {!isHost && webrtcStatus !== 'connected' && (
+            {!isHost && !hasRemoteStream && webrtcStatus !== 'connected' && (
               <div className="p-6 sm:p-8 text-center space-y-4 max-w-md">
                 <div className="w-16 h-16 rounded-3xl bg-zinc-900 border border-zinc-800 text-[#9B6BE8] flex items-center justify-center mx-auto shadow-inner">
                   <Tv className="w-8 h-8 animate-pulse" />
@@ -996,7 +1055,7 @@ export default function WatchRoomPage({
             )}
 
             {/* Bottom Floating Control Bar (Overlay) */}
-            {(isSharing || webrtcStatus === 'connected') && (
+            {(isSharing || hasRemoteStream || webrtcStatus === 'connected') && (
               <div className="absolute bottom-3 left-4 right-4 py-2 px-4 rounded-2xl bg-zinc-900/90 backdrop-blur-md border border-zinc-800/90 flex items-center justify-between text-xs text-zinc-300 shadow-xl transition-opacity">
                 {/* Left: Stream Info */}
                 <div className="flex items-center gap-2">

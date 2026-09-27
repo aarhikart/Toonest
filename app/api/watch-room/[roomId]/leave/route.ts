@@ -20,7 +20,7 @@ export async function POST(
       );
     }
 
-    const success = WatchRoomManager.leaveRoom(roomId, peerId);
+    const success = await WatchRoomManager.leaveRoom(roomId, peerId);
     return NextResponse.json({ success });
   } catch (err: any) {
     console.error('[API /api/watch-room/[roomId]/leave] Error:', err);

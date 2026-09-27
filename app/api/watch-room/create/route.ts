@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
     const platform = (body.platform as StreamingPlatform) || 'other';
     const title = body.title?.trim();
 
-    const room = WatchRoomManager.createRoom({
+    const room = await WatchRoomManager.createRoom({
       roomId,
       hostName,
       hostPeerId,
@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
       success: true,
       roomId: room.roomId,
       hostPeerId: room.hostPeerId,
-      room: WatchRoomManager.serializeRoom(room),
+      room,
     });
   } catch (err: any) {
     console.error('[API /api/watch-room/create] Error:', err);

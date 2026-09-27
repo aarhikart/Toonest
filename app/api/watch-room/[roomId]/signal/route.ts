@@ -24,7 +24,7 @@ export async function POST(
       );
     }
 
-    const signal = WatchRoomManager.postSignal(roomId, {
+    const signal = await WatchRoomManager.postSignal(roomId, {
       fromPeerId,
       toPeerId,
       type,
@@ -68,7 +68,7 @@ export async function GET(
       );
     }
 
-    const result = WatchRoomManager.getSignals(roomId, peerId, afterId);
+    const result = await WatchRoomManager.getSignals(roomId, peerId, afterId);
     if (!result) {
       return NextResponse.json(
         { success: false, error: 'Room not found or expired.' },
