@@ -478,37 +478,59 @@ export default function WatchRoomPage({
     participantPeerConnectionRef.current = pc;
 
     pc.ontrack = (event) => {
-      let stream = event.streams && event.streams[0];
-      if (!stream) {
-        if (!remoteStreamRef.current) {
-          remoteStreamRef.current = new MediaStream();
-        }
-        remoteStreamRef.current.addTrack(event.track);
-        stream = remoteStreamRef.current;
-      } else {
-        remoteStreamRef.current = stream;
+      console.log('[Viewer WebRTC] ontrack fired:', event.track.kind, event.track.id);
+
+      if (!remoteStreamRef.current) {
+        remoteStreamRef.current = new MediaStream();
       }
+
+      // Add track to persistent stream if not already present
+      if (!remoteStreamRef.current.getTracks().some((t) => t.id === event.track.id)) {
+        remoteStreamRef.current.addTrack(event.track);
+      }
+
+      const activeTracks = remoteStreamRef.current.getTracks();
+      const newStream = new MediaStream(activeTracks);
 
       setHasRemoteStream(true);
       setWebrtcStatus('connected');
 
       if (videoPlayerRef.current) {
-        videoPlayerRef.current.srcObject = stream;
+        videoPlayerRef.current.srcObject = newStream;
         videoPlayerRef.current.playsInline = true;
+        videoPlayerRef.current.muted = true;
 
-        const playPromise = videoPlayerRef.current.play();
-        if (playPromise !== undefined) {
-          playPromise.catch((err) => {
-            console.warn('Autoplay unmuted blocked by browser policy, attempting muted playback:', err);
-            if (videoPlayerRef.current) {
-              videoPlayerRef.current.muted = true;
-              setIsMuted(true);
-              setNeedsUserUnmute(true);
-              videoPlayerRef.current.play().catch((e) => console.error('Muted play also failed:', e));
-            }
-          });
-        }
+        const tryPlay = () => {
+          if (!videoPlayerRef.current) return;
+          const p = videoPlayerRef.current.play();
+          if (p !== undefined) {
+            p.then(() => {
+              setHasRemoteStream(true);
+            }).catch((err) => {
+              console.warn('Autoplay unmuted blocked by browser policy, attempting muted playback:', err);
+              if (videoPlayerRef.current) {
+                videoPlayerRef.current.muted = true;
+                setIsMuted(true);
+                setNeedsUserUnmute(true);
+                videoPlayerRef.current.play().catch((e) => console.error('Muted play also failed:', e));
+              }
+            });
+          }
+        };
+
+        videoPlayerRef.current.onloadedmetadata = () => {
+          tryPlay();
+        };
+
+        tryPlay();
       }
+
+      event.track.onunmute = () => {
+        setHasRemoteStream(true);
+        if (videoPlayerRef.current) {
+          videoPlayerRef.current.play().catch(() => {});
+        }
+      };
     };
 
     pc.onicecandidate = (event) => {
@@ -593,7 +615,6 @@ export default function WatchRoomPage({
       // Prompt native display media picker
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: {
-          displaySurface: 'browser',
           frameRate: { ideal: 30, max: 60 },
         },
         audio: true, // Captures tab stereo audio if user checks "Also share tab audio"
@@ -991,7 +1012,7 @@ export default function WatchRoomPage({
               playsInline
               muted={isHost ? true : isMuted}
               className={`w-full h-full object-contain ${
-                isSharing || hasRemoteStream || webrtcStatus === 'connected' ? 'block' : 'hidden'
+                isSharing || hasRemoteStream ? 'block' : 'hidden'
               }`}
             />
 
@@ -1055,18 +1076,24 @@ export default function WatchRoomPage({
             )}
 
             {/* Standby UI: Participant when host is not sharing or stream connecting */}
-            {!isHost && !hasRemoteStream && webrtcStatus !== 'connected' && (
+            {!isHost && !hasRemoteStream && (
               <div className="p-6 sm:p-8 text-center space-y-4 max-w-md">
                 <div className="w-16 h-16 rounded-3xl bg-zinc-900 border border-zinc-800 text-[#9B6BE8] flex items-center justify-center mx-auto shadow-inner">
-                  <Tv className="w-8 h-8 animate-pulse" />
+                  <Tv className={`w-8 h-8 ${webrtcStatus === 'connected' ? 'animate-pulse text-emerald-400' : 'animate-pulse text-[#9B6BE8]'}`} />
                 </div>
 
                 <div className="space-y-1.5">
                   <h3 className="text-lg font-bold text-white">
-                    {room.isScreenSharing ? 'Connecting to Stream...' : 'Waiting for Screen Share'}
+                    {webrtcStatus === 'connected'
+                      ? 'P2P Connected! Initializing Video...'
+                      : room.isScreenSharing
+                      ? 'Connecting to Cinema Stream...'
+                      : 'Waiting for Screen Share'}
                   </h3>
                   <p className="text-xs text-zinc-400">
-                    {room.isScreenSharing
+                    {webrtcStatus === 'connected'
+                      ? `Connected to Host @${room.hostName}. Click the button below if video does not start automatically.`
+                      : room.isScreenSharing
                       ? `Host @${room.hostName} is sharing their screen. Connecting your cinema stream...`
                       : `Host @${room.hostName} has not started sharing their screen yet. Sit back with your popcorn!`}
                   </p>
@@ -1074,32 +1101,37 @@ export default function WatchRoomPage({
 
                 <div className="flex flex-col items-center gap-2.5">
                   <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-900 border border-zinc-800 text-xs text-zinc-400">
-                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+                    <span className={`w-2 h-2 rounded-full ${webrtcStatus === 'connected' ? 'bg-emerald-500' : 'bg-amber-500'} animate-ping`} />
                     <span>
-                      {room.isScreenSharing ? 'Negotiating P2P WebRTC stream...' : 'Connected to room signaling'}
+                      {webrtcStatus === 'connected' ? 'P2P WebRTC Connected' : 'Waiting for Video Feed'}
                     </span>
                   </div>
 
                   <button
                     type="button"
                     onClick={() => {
+                      if (videoPlayerRef.current && remoteStreamRef.current) {
+                        videoPlayerRef.current.srcObject = new MediaStream(remoteStreamRef.current.getTracks());
+                        videoPlayerRef.current.muted = true;
+                        videoPlayerRef.current.play().then(() => setHasRemoteStream(true)).catch(() => {});
+                      }
                       postSignal({
                         toPeerId: room.hostPeerId || 'all',
                         type: 'webrtc:request-stream',
                         payload: { peerId: myPeerId },
                       });
                     }}
-                    className="px-3.5 py-1.5 rounded-xl bg-zinc-800/90 hover:bg-zinc-700 text-xs text-zinc-300 font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                    className="px-4 py-2 rounded-xl bg-[#5722AF] hover:bg-[#682BC9] text-xs text-white font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-lg"
                   >
-                    <RefreshCw className="w-3.5 h-3.5 text-[#9B6BE8]" />
-                    <span>Request / Refresh Stream</span>
+                    <RefreshCw className="w-3.5 h-3.5 text-white" />
+                    <span>Tap to Play / Refresh Stream</span>
                   </button>
                 </div>
               </div>
             )}
 
             {/* Bottom Floating Control Bar (Overlay) */}
-            {(isSharing || hasRemoteStream || webrtcStatus === 'connected') && (
+            {(isSharing || hasRemoteStream) && (
               <div className="absolute bottom-3 left-4 right-4 py-2 px-4 rounded-2xl bg-zinc-900/90 backdrop-blur-md border border-zinc-800/90 flex items-center justify-between text-xs text-zinc-300 shadow-xl transition-opacity">
                 {/* Left: Stream Info */}
                 <div className="flex items-center gap-2">
