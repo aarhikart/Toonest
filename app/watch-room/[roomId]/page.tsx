@@ -62,7 +62,7 @@ export default function WatchRoomPage({
 
   // Media & WebRTC State
   const [isSharing, setIsSharing] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
+  const [isMuted, setIsMuted] = useState(!initialIsHost);
   const [volume, setVolume] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isTheaterMode, setIsTheaterMode] = useState(false);
@@ -72,7 +72,7 @@ export default function WatchRoomPage({
   const [shareError, setShareError] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
   const [hasRemoteStream, setHasRemoteStream] = useState(false);
-  const [needsUserUnmute, setNeedsUserUnmute] = useState(false);
+  const [needsUserUnmute, setNeedsUserUnmute] = useState(!initialIsHost);
 
   // Refs
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -84,6 +84,11 @@ export default function WatchRoomPage({
   const lastSignalIdRef = useRef<number>(0);
   const pollingTimerRef = useRef<NodeJS.Timeout | null>(null);
   const candidateQueuesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
+  const isHostRef = useRef<boolean>(isHost);
+
+  useEffect(() => {
+    isHostRef.current = isHost;
+  }, [isHost]);
 
   // 1. Initial Room Fetch & Identity Setup
   useEffect(() => {
@@ -274,7 +279,14 @@ export default function WatchRoomPage({
 
   // Stream recovery for viewers: If host is screen sharing but viewer hasn't received tracks yet
   useEffect(() => {
-    if (isHost || !isJoined || !room?.isScreenSharing || hasRemoteStream || webrtcStatus === 'connected') {
+    if (
+      isHost ||
+      !isJoined ||
+      !room?.isScreenSharing ||
+      hasRemoteStream ||
+      webrtcStatus === 'connected' ||
+      webrtcStatus === 'connecting'
+    ) {
       return;
     }
 
@@ -284,17 +296,32 @@ export default function WatchRoomPage({
         type: 'webrtc:request-stream',
         payload: { peerId: myPeerId },
       });
-    }, 3500);
+    }, 5000);
 
     return () => clearInterval(interval);
   }, [isHost, isJoined, room?.isScreenSharing, room?.hostPeerId, hasRemoteStream, webrtcStatus, myPeerId]);
 
+  // Ensure remote stream is cleanly bound to video player when element mounts
+  useEffect(() => {
+    if (!isHost && videoPlayerRef.current && remoteStreamRef.current) {
+      if (videoPlayerRef.current.srcObject !== remoteStreamRef.current) {
+        videoPlayerRef.current.srcObject = remoteStreamRef.current;
+      }
+      videoPlayerRef.current.play().catch(() => {
+        if (videoPlayerRef.current) {
+          videoPlayerRef.current.muted = true;
+          setIsMuted(true);
+          setNeedsUserUnmute(true);
+          videoPlayerRef.current.play().catch(() => {});
+        }
+      });
+    }
+  }, [hasRemoteStream, isJoined, isHost]);
+
   // 3. Handle WebRTC Signaling Messages
   const handleIncomingSignal = async (signal: WatchSignalMessage) => {
-    const iceServers = getWatchIceServers();
-
     // CASE A: HOST handling incoming signals from participants
-    if (isHost) {
+    if (isHostRef.current) {
       if (signal.type === 'peer:join' || signal.type === 'webrtc:request-stream') {
         const targetId = signal.type === 'peer:join' ? signal.payload?.peer?.id : signal.fromPeerId;
         if (targetId && targetId !== myPeerId) {
@@ -320,13 +347,15 @@ export default function WatchRoomPage({
         }
       } else if (signal.type === 'webrtc:ice-candidate') {
         const pc = peerConnectionsRef.current.get(signal.fromPeerId);
-        if (pc && signal.payload?.candidate) {
+        const candData = signal.payload?.candidate || signal.payload;
+        if (pc && candData && (candData.candidate !== undefined || typeof candData === 'string')) {
           try {
+            const candObj = typeof candData === 'string' ? { candidate: candData } : candData;
             if (pc.remoteDescription && pc.remoteDescription.type) {
-              await pc.addIceCandidate(new RTCIceCandidate(signal.payload.candidate)).catch(() => {});
+              await pc.addIceCandidate(new RTCIceCandidate(candObj)).catch(() => {});
             } else {
               const q = candidateQueuesRef.current.get(signal.fromPeerId) || [];
-              q.push(signal.payload.candidate);
+              q.push(candObj);
               candidateQueuesRef.current.set(signal.fromPeerId, q);
             }
           } catch (e) {
@@ -357,13 +386,15 @@ export default function WatchRoomPage({
         });
       } else if (signal.type === 'webrtc:ice-candidate') {
         const pc = participantPeerConnectionRef.current;
-        if (pc && signal.payload?.candidate) {
+        const candData = signal.payload?.candidate || signal.payload;
+        if (pc && candData && (candData.candidate !== undefined || typeof candData === 'string')) {
           try {
+            const candObj = typeof candData === 'string' ? { candidate: candData } : candData;
             if (pc.remoteDescription && pc.remoteDescription.type) {
-              await pc.addIceCandidate(new RTCIceCandidate(signal.payload.candidate)).catch(() => {});
+              await pc.addIceCandidate(new RTCIceCandidate(candObj)).catch(() => {});
             } else {
               const q = candidateQueuesRef.current.get('host') || [];
-              q.push(signal.payload.candidate);
+              q.push(candObj);
               candidateQueuesRef.current.set('host', q);
             }
           } catch (e) {
@@ -401,10 +432,15 @@ export default function WatchRoomPage({
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
+        const candidatePayload = event.candidate.toJSON ? event.candidate.toJSON() : {
+          candidate: event.candidate.candidate,
+          sdpMid: event.candidate.sdpMid,
+          sdpMLineIndex: event.candidate.sdpMLineIndex,
+        };
         postSignal({
           toPeerId: targetPeerId,
           type: 'webrtc:ice-candidate',
-          payload: { candidate: event.candidate },
+          payload: { candidate: candidatePayload },
         });
       }
     };
@@ -449,6 +485,8 @@ export default function WatchRoomPage({
         }
         remoteStreamRef.current.addTrack(event.track);
         stream = remoteStreamRef.current;
+      } else {
+        remoteStreamRef.current = stream;
       }
 
       setHasRemoteStream(true);
@@ -475,10 +513,15 @@ export default function WatchRoomPage({
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
+        const candidatePayload = event.candidate.toJSON ? event.candidate.toJSON() : {
+          candidate: event.candidate.candidate,
+          sdpMid: event.candidate.sdpMid,
+          sdpMLineIndex: event.candidate.sdpMLineIndex,
+        };
         postSignal({
           toPeerId: hostId,
           type: 'webrtc:ice-candidate',
-          payload: { candidate: event.candidate },
+          payload: { candidate: candidatePayload },
         });
       }
     };
@@ -946,6 +989,7 @@ export default function WatchRoomPage({
               ref={videoPlayerRef}
               autoPlay
               playsInline
+              muted={isHost ? true : isMuted}
               className={`w-full h-full object-contain ${
                 isSharing || hasRemoteStream || webrtcStatus === 'connected' ? 'block' : 'hidden'
               }`}
