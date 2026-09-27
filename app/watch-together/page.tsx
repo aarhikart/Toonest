@@ -121,9 +121,19 @@ export default function WatchTogetherHubPage() {
       if (typeof window !== 'undefined') {
         localStorage.setItem(`watch_peer_${data.roomId}`, hostPeerId);
         localStorage.setItem(`watch_name_${data.roomId}`, hostName.trim());
+        localStorage.setItem(`watch_host_${data.roomId}`, '1');
+        localStorage.setItem(`watch_platform_${data.roomId}`, selectedPlatform);
       }
 
-      router.push(`/watch-room/${data.roomId}?isHost=1`);
+      const params = new URLSearchParams();
+      params.set('isHost', '1');
+      params.set('platform', selectedPlatform);
+      params.set('host', hostName.trim());
+      if (roomTitle.trim()) {
+        params.set('title', roomTitle.trim());
+      }
+
+      router.push(`/watch-room/${data.roomId}?${params.toString()}`);
     } catch (err: any) {
       console.error('Create room error:', err);
       setCreateError('Network error occurred. Please check your connection.');
@@ -133,13 +143,20 @@ export default function WatchTogetherHubPage() {
 
   const handleJoinRoom = (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanCode = joinCode.trim().toUpperCase();
+    let raw = joinCode.trim();
+    if (raw.includes('/watch-room/')) {
+      const match = raw.match(/\/watch-room\/([A-Za-z0-9_-]+)/i);
+      if (match && match[1]) {
+        raw = match[1];
+      }
+    }
+    const cleanCode = raw.toUpperCase().replace(/[^A-Z0-9_-]/g, '');
     if (!cleanCode) {
       setJoinError('Please enter a room code.');
       return;
     }
 
-    if (cleanCode.length < 4) {
+    if (cleanCode.length < 3) {
       setJoinError('Invalid room code length.');
       return;
     }

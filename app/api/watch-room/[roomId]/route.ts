@@ -10,12 +10,22 @@ export async function GET(
 ) {
   try {
     const { roomId } = await params;
-    const room = WatchRoomManager.getRoom(roomId);
+    const searchParams = req.nextUrl.searchParams;
+    const platform = (searchParams.get('platform') as any) || undefined;
+    const title = searchParams.get('title') || undefined;
+    const host = searchParams.get('host') || undefined;
+
+    // Retrieve or auto-provision room so valid room links NEVER 404
+    const room = WatchRoomManager.getOrCreateRoom(roomId, {
+      platform,
+      title,
+      hostName: host,
+    });
 
     if (!room) {
       return NextResponse.json(
-        { success: false, error: 'Watch Room not found. Please verify the link or code.' },
-        { status: 404 }
+        { success: false, error: 'Invalid room code format. Please check your link.' },
+        { status: 400 }
       );
     }
 

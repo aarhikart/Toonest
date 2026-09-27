@@ -8,12 +8,14 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
+    const roomId = body.roomId?.trim();
     const hostName = body.hostName?.trim() || 'Host';
     const hostPeerId = body.hostPeerId?.trim() || `host_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const platform = (body.platform as StreamingPlatform) || 'other';
     const title = body.title?.trim();
 
     const room = WatchRoomManager.createRoom({
+      roomId,
       hostName,
       hostPeerId,
       platform,

@@ -87,12 +87,40 @@ export default function WatchRoomPage({
 
     async function initRoom() {
       try {
-        const res = await fetch(`/api/watch-room/${roomId}`);
-        const data = await res.json();
+        const querySearch = typeof window !== 'undefined' ? window.location.search : '';
+        const urlParams = typeof window !== 'undefined' ? new URLSearchParams(querySearch) : new URLSearchParams();
+        const queryHost = urlParams.get('host') || undefined;
+        const queryPlatform = (urlParams.get('platform') as StreamingPlatform) || undefined;
+        const queryTitle = urlParams.get('title') || undefined;
+        const queryIsHost = urlParams.get('isHost') === '1' || initialIsHost;
+
+        let res = await fetch(`/api/watch-room/${roomId}${querySearch}`);
+        let data = await res.json().catch(() => ({}));
+
+        // Self-healing fallback: If initial fetch failed, auto-create/restore room on demand
+        if (!res.ok || !data.success || !data.room) {
+          const savedHostName = typeof window !== 'undefined' ? localStorage.getItem(`watch_name_${roomId}`) : null;
+          const hostNameToUse = queryHost || savedHostName || 'Host';
+          const createRes = await fetch('/api/watch-room/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              roomId,
+              hostName: hostNameToUse,
+              platform: queryPlatform || 'netflix',
+              title: queryTitle || undefined,
+            }),
+          });
+          const createData = await createRes.json().catch(() => ({}));
+          if (createRes.ok && createData.success && createData.room) {
+            data = createData;
+            res = createRes;
+          }
+        }
 
         if (!mounted) return;
 
-        if (!res.ok || !data.success || !data.room) {
+        if (!data.success || !data.room) {
           setRoomError(data.error || 'This Watch Room does not exist or has expired.');
           setIsLoadingRoom(false);
           return;
@@ -104,20 +132,30 @@ export default function WatchRoomPage({
         // Check local storage for existing credentials
         const savedPeerId = localStorage.getItem(`watch_peer_${roomId}`);
         const savedName = localStorage.getItem(`watch_name_${roomId}`);
+        const savedIsHost = localStorage.getItem(`watch_host_${roomId}`) === '1';
 
-        if (savedPeerId) {
-          setMyPeerId(savedPeerId);
-          const isUserHost = roomData.hostPeerId === savedPeerId || initialIsHost;
-          setIsHost(isUserHost);
-          const nameToUse = savedName || (isUserHost ? roomData.hostName : 'Guest');
+        const isUserHost =
+          queryIsHost ||
+          savedIsHost ||
+          (savedPeerId && roomData.hostPeerId === savedPeerId) ||
+          !roomData.hostPeerId;
+
+        setIsHost(isUserHost);
+
+        if (isUserHost) {
+          localStorage.setItem(`watch_host_${roomId}`, '1');
+          const pId = savedPeerId || roomData.hostPeerId || `host_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+          const nameToUse = savedName || queryHost || roomData.hostName || 'Host';
+          localStorage.setItem(`watch_peer_${roomId}`, pId);
+          localStorage.setItem(`watch_name_${roomId}`, nameToUse);
+          setMyPeerId(pId);
           setMyDisplayName(nameToUse);
-          await joinRoomInternal(savedPeerId, nameToUse, isUserHost);
-        } else if (initialIsHost && roomData.hostPeerId) {
-          // User just created room
-          setMyPeerId(roomData.hostPeerId);
-          setIsHost(true);
-          setMyDisplayName(roomData.hostName);
-          setIsJoined(true);
+          await joinRoomInternal(pId, nameToUse, true);
+        } else if (savedPeerId) {
+          setMyPeerId(savedPeerId);
+          const nameToUse = savedName || 'Guest';
+          setMyDisplayName(nameToUse);
+          await joinRoomInternal(savedPeerId, nameToUse, false);
         } else {
           // Participant joining via direct link -> show Join Modal
           if (savedName) setJoinModalName(savedName);
@@ -559,7 +597,13 @@ export default function WatchRoomPage({
 
   // Copy share link
   const handleCopyLink = () => {
-    const fullUrl = `${window.location.origin}/watch-room/${roomId}`;
+    const params = new URLSearchParams();
+    if (room?.platform) params.set('platform', room.platform);
+    if (room?.title) params.set('title', room.title);
+    if (room?.hostName) params.set('host', room.hostName);
+
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    const fullUrl = `${window.location.origin}/watch-room/${roomId}${qs}`;
     navigator.clipboard.writeText(fullUrl);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2500);
