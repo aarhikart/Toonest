@@ -48,6 +48,14 @@ export function extractReelShortcode(rawUrl: string): string | null {
   }
 }
 
+export function extractInstagramShortcode(rawUrl: string): string | null {
+  return extractReelShortcode(rawUrl);
+}
+
+export function isValidInstagramUrl(url: string): boolean {
+  return extractInstagramShortcode(url) !== null;
+}
+
 export function isValidInstagramReelUrl(url: string): boolean {
   return extractReelShortcode(url) !== null;
 }
@@ -55,7 +63,11 @@ export function isValidInstagramReelUrl(url: string): boolean {
 export function cleanInstagramUrl(url: string): string {
   const shortcode = extractReelShortcode(url);
   if (!shortcode) return url.trim();
-  return `https://www.instagram.com/reel/${shortcode}/`;
+  // Preserve /p/ or /reel/ based on original url
+  const isPost = /\/p\//i.test(url);
+  return isPost
+    ? `https://www.instagram.com/p/${shortcode}/`
+    : `https://www.instagram.com/reel/${shortcode}/`;
 }
 
 /**

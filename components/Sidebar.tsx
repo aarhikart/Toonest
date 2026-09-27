@@ -12,6 +12,7 @@ import {
   Minimize2,
   Maximize2,
   RefreshCw,
+  Download,
   FileText,
   Hash,
   Binary,
@@ -44,6 +45,8 @@ import {
   Smartphone,
   Monitor,
   Camera,
+  Phone,
+  Tv,
 } from 'lucide-react';
 
 
@@ -315,6 +318,14 @@ export function Sidebar({
       badge: 'Available',
     },
     {
+      id: 'instagram-downloader',
+      name: 'Social Video Downloader',
+      desc: 'Download videos from Instagram, Pinterest & YouTube',
+      icon: <Download className="w-4 h-4" />,
+      href: '/instagram-downloader',
+      badge: 'Available',
+    },
+    {
       id: 'instagram-reel-downloader',
       name: 'Instagram Reel Downloader',
       desc: 'Save public Instagram Reels in HD MP4 with audio',
@@ -336,6 +347,14 @@ export function Sidebar({
       desc: 'Auto comment & user tag script generator with anti-bot protection',
       icon: <MessageSquare className="w-4 h-4" />,
       href: '/instagram-auto-commenter',
+      badge: 'Available',
+    },
+    {
+      id: 'watch-together',
+      name: 'Watch Together (Cinema)',
+      desc: 'Screen share movies & videos with friends via WebRTC',
+      icon: <Tv className="w-4 h-4" />,
+      href: '/watch-together',
       badge: 'Available',
     },
     {
@@ -392,6 +411,30 @@ export function Sidebar({
       desc: 'Consent-based peer-to-peer WebRTC live mobile camera streaming & demo face analysis',
       icon: <Camera className="w-4 h-4" />,
       href: '/camera-connect',
+      badge: 'Available',
+    },
+    {
+      id: 'batch-video-downloader',
+      name: 'Batch Video Downloader',
+      desc: 'Batch download videos from uploaded HTML files in sequential ZIP streams',
+      icon: <FileArchive className="w-4 h-4" />,
+      href: '/batch-video-downloader',
+      badge: 'Available',
+    },
+    {
+      id: 'mp4-metadata-remover',
+      name: 'MP4 Metadata Remover',
+      desc: 'Inspect & sanitize MP4 videos, stripping GPS, camera, and sensitive tags',
+      icon: <Film className="w-4 h-4" />,
+      href: '/mp4-metadata-remover',
+      badge: 'Available',
+    },
+    {
+      id: 'call-history',
+      name: 'Call History Analyzer',
+      desc: 'View, search, filter and analyze your authorized call records locally',
+      icon: <Phone className="w-4 h-4" />,
+      href: '/call-history',
       badge: 'Available',
     },
   ];

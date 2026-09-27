@@ -328,3 +328,11 @@ model AuditLog {
 
   @@index([organizationId, createdAt])
 }
+
+model InstagramDownload {
+  id        String   @id @default(cuid())
+  sourceUrl String
+  mediaType String?
+  status    String
+  createdAt DateTime @default(now())
+}
