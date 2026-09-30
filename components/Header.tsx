@@ -17,6 +17,11 @@ interface HeaderProps {
   onOpenHelp: () => void;
   activeToolName?: string;
   hideBrowseTools?: boolean;
+  onToggleUserSidebar?: () => void;
+  user?: {
+    username: string;
+    businessName: string;
+  } | null;
 }
 
 export function Header({
@@ -24,6 +29,8 @@ export function Header({
   onOpenHelp,
   activeToolName = 'Image Bulk Rename',
   hideBrowseTools = false,
+  onToggleUserSidebar,
+  user,
 }: HeaderProps) {
   const [isDark, setIsDark] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -141,14 +148,31 @@ export function Header({
             {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-zinc-600" />}
           </button>
 
-          {/* Mobile Menu Trigger */}
-          <button
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="md:hidden p-2 rounded-lg text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 border border-zinc-200/60 dark:border-zinc-700/60 transition-colors"
-            aria-label="Toggle menu"
-          >
-            {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-          </button>
+          {/* Header Hamburger on Right Top */}
+          {onToggleUserSidebar ? (
+            <button
+              type="button"
+              onClick={onToggleUserSidebar}
+              className="p-2 rounded-xl bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/60 dark:hover:bg-purple-900/60 text-[#5722AF] dark:text-purple-300 border border-purple-200 dark:border-purple-800 transition-colors flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-[#5722AF] cursor-pointer shadow-2xs group"
+              title="Open Account & Options"
+              aria-label="Open Account & Options"
+            >
+              <Menu className="w-5 h-5 text-[#5722AF] dark:text-[#9B6BE8] group-hover:scale-105 transition-transform" />
+              {user && (
+                <span className="text-xs font-bold text-zinc-900 dark:text-white truncate max-w-[120px]">
+                  {user.businessName || user.username}
+                </span>
+              )}
+            </button>
+          ) : (
+            <button
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="md:hidden p-2 rounded-lg text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 border border-zinc-200/60 dark:border-zinc-700/60 transition-colors"
+              aria-label="Toggle menu"
+            >
+              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            </button>
+          )}
         </div>
       </div>
 

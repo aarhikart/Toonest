@@ -270,10 +270,8 @@ export function VideoListTable({
                 {previewVideo.url}
               </span>
               <a
-                href={previewVideo.url}
+                href={`/api/download-batch/proxy?url=${encodeURIComponent(previewVideo.url)}&filename=${encodeURIComponent(previewVideo.filename)}`}
                 download={previewVideo.filename}
-                target="_blank"
-                rel="noopener noreferrer"
                 className="px-3 py-1.5 rounded-lg bg-[#5722AF] text-white hover:bg-[#682BC9] text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
               >
                 <Download className="w-3.5 h-3.5" />

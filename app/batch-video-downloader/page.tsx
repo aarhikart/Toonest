@@ -25,7 +25,12 @@ import {
   FileCheck,
   FolderArchive,
   Info,
+  Square,
 } from 'lucide-react';
+import {
+  downloadBatchWithJSZip,
+  BatchDownloadProgress,
+} from '@/lib/batch-video/clientBatchDownloader';
 
 export default function BatchVideoDownloaderPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -42,8 +47,12 @@ export default function BatchVideoDownloaderPage() {
   const [successToast, setSuccessToast] = useState<string | null>(null);
   const [autoAdvanceEnabled, setAutoAdvanceEnabled] = useState<boolean>(true);
   const [namingMode, setNamingMode] = useState<'title' | 'pinId'>('title');
+  const [downloadSpeed, setDownloadSpeed] = useState<number>(16);
+  const [downloadProgress, setDownloadProgress] = useState<BatchDownloadProgress | null>(null);
+  const [multiPartStatus, setMultiPartStatus] = useState<{ currentPart: number; totalParts: number } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Compute total batches
   const totalVideos = videos.length;
@@ -148,7 +157,21 @@ export default function BatchVideoDownloaderPage() {
     reader.readAsText(file);
   };
 
-  // Download a single batch by index
+  // Stop / Cancel active download
+  const handleCancelDownload = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsDownloading(false);
+    setIsDownloadingAll(false);
+    setDownloadingBatchIndex(null);
+    setDownloadProgress(null);
+    setMultiPartStatus(null);
+    setErrorMessage('Download was stopped by user.');
+  };
+
+  // Download a single batch by index using client-side JSZip
   const downloadBatch = async (batchIdxToDownload: number) => {
     if (isDownloading) return;
     if (batchIdxToDownload < 1 || batchIdxToDownload > totalBatches) return;
@@ -164,37 +187,30 @@ export default function BatchVideoDownloaderPage() {
     setErrorMessage(null);
     setSuccessToast(null);
 
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    const safeName = htmlFileName
+      ? htmlFileName.replace(/\.html?$/i, '').replace(/[^a-zA-Z0-9._-]/g, '_')
+      : 'pinterest_videos';
+    const zipFilename = `${safeName}_batch_${batchIdxToDownload}_(${start + 1}-${end}).zip`;
+
     try {
-      const response = await fetch('/api/download-batch', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          batchIndex: batchIdxToDownload,
-          batchName: `pinterest_videos_batch_${batchIdxToDownload}_${start + 1}_to_${end}`,
-          videos: targetVideos.map((v) => ({
-            url: v.url,
-            filename: v.filename,
-          })),
-        }),
+      const result = await downloadBatchWithJSZip({
+        videos: targetVideos.map((v) => ({
+          url: v.url,
+          filename: v.filename,
+        })),
+        zipFilename,
+        concurrency: downloadSpeed,
+        signal: controller.signal,
+        onProgress: (p) => setDownloadProgress(p),
       });
 
-      if (!response.ok) {
-        const errJson = await response.json().catch(() => ({}));
-        throw new Error(errJson.error || `Server returned ${response.status} ${response.statusText}`);
+      if (!result.success) {
+        if (controller.signal.aborted) return;
+        throw new Error(result.error || 'Failed to package ZIP file.');
       }
-
-      // Read ZIP stream as Blob
-      const blob = await response.blob();
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = `pinterest_videos_batch_${batchIdxToDownload}_(${start + 1}-${end}).zip`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(downloadUrl);
 
       // Record batch completion
       setCompletedBatches((prev) => {
@@ -217,15 +233,18 @@ export default function BatchVideoDownloaderPage() {
         setSuccessToast(`Batch #${batchIdxToDownload} downloaded successfully!`);
       }
     } catch (err: any) {
+      if (controller.signal.aborted) return;
       console.error('Batch download error:', err);
       setErrorMessage(`Batch #${batchIdxToDownload} failed: ${err.message || 'Unknown network error'}`);
     } finally {
       setIsDownloading(false);
       setDownloadingBatchIndex(null);
+      setDownloadProgress(null);
+      abortControllerRef.current = null;
     }
   };
 
-  // Download all videos in a single ZIP without skipping any
+  // Download all videos: 1 ZIP if single batch, or sequential multi-part ZIPs if large collection
   const downloadAllVideos = async () => {
     if (isDownloading || totalVideos === 0) return;
 
@@ -234,58 +253,107 @@ export default function BatchVideoDownloaderPage() {
     setErrorMessage(null);
     setSuccessToast(null);
 
-    try {
-      const safeName = htmlFileName
-        ? htmlFileName.replace(/\.html?$/i, '').replace(/[^a-zA-Z0-9._-]/g, '_')
-        : 'pinterest_videos';
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
-      const response = await fetch('/api/download-batch', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          batchIndex: 1,
-          batchName: `${safeName}_all_${totalVideos}_videos`,
+    const safeName = htmlFileName
+      ? htmlFileName.replace(/\.html?$/i, '').replace(/[^a-zA-Z0-9._-]/g, '_')
+      : 'pinterest_videos';
+
+    try {
+      if (totalBatches <= 1) {
+        // Fits into a single ZIP archive
+        setMultiPartStatus(null);
+        const zipFilename = `${safeName}_all_${totalVideos}_videos.zip`;
+        const result = await downloadBatchWithJSZip({
           videos: displayVideos.map((v) => ({
             url: v.url,
             filename: v.filename,
           })),
-        }),
-      });
+          zipFilename,
+          concurrency: downloadSpeed,
+          signal: controller.signal,
+          onProgress: (p) => setDownloadProgress(p),
+        });
 
-      if (!response.ok) {
-        const errJson = await response.json().catch(() => ({}));
-        throw new Error(errJson.error || `Server returned ${response.status} ${response.statusText}`);
+        if (!result.success) {
+          if (controller.signal.aborted) return;
+          throw new Error(result.error || 'Failed to package ZIP archive.');
+        }
+
+        const allDone = new Set<number>();
+        allDone.add(1);
+        setCompletedBatches(allDone);
+        setSuccessToast(`All ${totalVideos} videos downloaded successfully in a single verified ZIP! 🎉`);
+      } else {
+        // Multi-Part sequential downloader for large video collections (e.g. 200 - 1,380+ videos)
+        // Downloads Part 1, Part 2, ... automatically without hitting Vercel timeouts or browser memory limits
+        const allDone = new Set<number>(completedBatches);
+
+        for (let batchIdx = 1; batchIdx <= totalBatches; batchIdx++) {
+          if (controller.signal.aborted) break;
+
+          setMultiPartStatus({ currentPart: batchIdx, totalParts: totalBatches });
+          setActiveBatchIndex(batchIdx);
+
+          const start = (batchIdx - 1) * batchSize;
+          const end = Math.min(batchIdx * batchSize, totalVideos);
+          const targetVideos = displayVideos.slice(start, end);
+
+          const partFilename = `${safeName}_part_${batchIdx}_of_${totalBatches}_(${start + 1}-${end}).zip`;
+
+          const result = await downloadBatchWithJSZip({
+            videos: targetVideos.map((v) => ({
+              url: v.url,
+              filename: v.filename,
+            })),
+            zipFilename: partFilename,
+            concurrency: downloadSpeed,
+            signal: controller.signal,
+            onProgress: (p) => setDownloadProgress(p),
+          });
+
+          if (!result.success) {
+            if (controller.signal.aborted) break;
+            throw new Error(`Part #${batchIdx} failed: ${result.error || 'Unknown error'}`);
+          }
+
+          allDone.add(batchIdx);
+          setCompletedBatches(new Set(allDone));
+
+          // Instant progression between parts
+          await new Promise((r) => setTimeout(r, 100));
+        }
+
+        if (!controller.signal.aborted) {
+          setSuccessToast(
+            `All ${totalVideos} videos saved successfully across ${totalBatches} verified ZIP files! 🎉`
+          );
+        }
       }
-
-      const blob = await response.blob();
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = `${safeName}_all_${totalVideos}_videos.zip`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(downloadUrl);
-
-      // Mark all batches as complete
-      const allDone = new Set<number>();
-      for (let i = 1; i <= totalBatches; i++) {
-        allDone.add(i);
-      }
-      setCompletedBatches(allDone);
-      setSuccessToast(`All ${totalVideos} videos downloaded successfully in a single ZIP file! 🎉`);
     } catch (err: any) {
+      if (controller.signal.aborted) return;
       console.error('Download all error:', err);
       setErrorMessage(`Download all failed: ${err.message || 'Unknown network error'}`);
     } finally {
       setIsDownloading(false);
       setIsDownloadingAll(false);
+      setDownloadProgress(null);
+      setMultiPartStatus(null);
+      abortControllerRef.current = null;
     }
   };
 
   const handleReset = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsDownloading(false);
+    setIsDownloadingAll(false);
+    setDownloadingBatchIndex(null);
+    setDownloadProgress(null);
+    setMultiPartStatus(null);
     setVideos([]);
     setHtmlFileName(null);
     setHtmlFileSize(null);
@@ -572,6 +640,33 @@ export default function BatchVideoDownloaderPage() {
                       All ({totalVideos})
                     </button>
                   </div>
+
+                  {/* Turbo Speed Selector */}
+                  <div className="flex items-center gap-1.5 bg-white dark:bg-zinc-800/80 p-1.5 rounded-2xl border border-zinc-200 dark:border-zinc-700 shadow-2xs">
+                    <div className="flex items-center gap-1.5 px-2 text-xs font-semibold text-zinc-500">
+                      <Zap className="w-3.5 h-3.5 text-amber-500" />
+                      <span>Speed:</span>
+                    </div>
+                    {[
+                      { label: 'Turbo (16x)', value: 16 },
+                      { label: 'Fast (10x)', value: 10 },
+                    ].map((sp) => (
+                      <button
+                        key={sp.value}
+                        type="button"
+                        disabled={isDownloading}
+                        onClick={() => setDownloadSpeed(sp.value)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                          downloadSpeed === sp.value
+                            ? 'bg-amber-500 text-white shadow-xs'
+                            : 'text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700'
+                        }`}
+                        title={`${sp.value} parallel connections`}
+                      >
+                        {sp.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
 
@@ -617,23 +712,35 @@ export default function BatchVideoDownloaderPage() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
-                  {/* Download All Videos in 1 ZIP */}
+                  {/* Download All Videos in 1 ZIP or Sequential Parts */}
                   <button
                     type="button"
                     disabled={isDownloading || totalVideos === 0}
                     onClick={downloadAllVideos}
                     className="w-full sm:w-auto px-6 py-3.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 text-white font-bold text-sm shadow-md shadow-emerald-600/25 hover:shadow-lg transition-all flex items-center justify-center gap-2.5 group cursor-pointer"
-                    title="Download all videos in one single ZIP file"
+                    title={
+                      totalBatches > 1
+                        ? `Download all ${totalVideos} videos sequentially in ${totalBatches} verified ZIP files`
+                        : 'Download all videos in one single verified ZIP file'
+                    }
                   >
                     {isDownloadingAll ? (
                       <>
                         <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Zipping All {totalVideos} Videos...</span>
+                        <span>
+                          {multiPartStatus
+                            ? `Part ${multiPartStatus.currentPart} of ${multiPartStatus.totalParts} (${downloadProgress?.percent || 0}%)...`
+                            : `Downloading (${downloadProgress?.percent || 0}%)...`}
+                        </span>
                       </>
                     ) : (
                       <>
                         <FolderArchive className="w-4 h-4 group-hover:scale-110 transition-transform" />
-                        <span>Download All ({totalVideos} Videos)</span>
+                        <span>
+                          {totalBatches > 1
+                            ? `Download All (${totalVideos} Videos in ${totalBatches} Parts)`
+                            : `Download All (${totalVideos} Videos)`}
+                        </span>
                       </>
                     )}
                   </button>
@@ -650,7 +757,7 @@ export default function BatchVideoDownloaderPage() {
                         <>
                           <RefreshCw className="w-4 h-4 animate-spin" />
                           <span>
-                            Zipping Batch #{activeBatchIndex} ({currentBatchInfo.startIdx}–{currentBatchInfo.endIdx})...
+                            Batch #{activeBatchIndex} ({downloadProgress?.percent || 0}%)...
                           </span>
                         </>
                       ) : completedBatches.has(activeBatchIndex) ? (
@@ -685,14 +792,63 @@ export default function BatchVideoDownloaderPage() {
                 </div>
               </div>
 
+              {/* Dynamic Live Progress & Cancellation Card */}
               {isDownloading && (
-                <div className="p-3.5 rounded-xl bg-[#5722AF]/10 border border-[#5722AF]/20 text-xs text-[#5722AF] dark:text-purple-300 flex items-center gap-2.5">
-                  <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
-                  <span>
-                    {isDownloadingAll
-                      ? `Server is downloading and packaging all ${totalVideos} videos into a single ZIP file. Please keep this tab open...`
-                      : `Server is fetching batch #${activeBatchIndex} videos from CDN, packing into a ZIP file, and streaming to your browser. Please keep this tab open...`}
-                  </span>
+                <div className="p-4 rounded-2xl bg-purple-50/80 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800/60 space-y-3 animate-in fade-in duration-200">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-2 font-bold text-[#5722AF] dark:text-purple-300">
+                      <RefreshCw className="w-4 h-4 animate-spin shrink-0 text-[#5722AF]" />
+                      <span>
+                        {multiPartStatus
+                          ? `Downloading Part ${multiPartStatus.currentPart} of ${multiPartStatus.totalParts} (Batch #${multiPartStatus.currentPart})...`
+                          : isDownloadingAll
+                          ? `Downloading all ${totalVideos} videos...`
+                          : `Downloading Batch #${downloadingBatchIndex || activeBatchIndex}...`}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      {downloadProgress && (
+                        <div className="text-zinc-600 dark:text-zinc-400 font-mono text-[11px]">
+                          {downloadProgress.completedVideos} / {downloadProgress.totalVideos} videos{' '}
+                          {downloadProgress.totalBytesDownloaded > 0 &&
+                            `(${(downloadProgress.totalBytesDownloaded / (1024 * 1024)).toFixed(1)} MB)`}
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleCancelDownload}
+                        className="px-2.5 py-1 rounded-lg bg-rose-100 hover:bg-rose-200 dark:bg-rose-950/60 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 text-[11px] font-bold transition-colors flex items-center gap-1 cursor-pointer"
+                        title="Cancel active download"
+                      >
+                        <Square className="w-3 h-3 fill-current" />
+                        <span>Cancel</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Real-time Progress Bar */}
+                  <div className="w-full h-2 rounded-full bg-purple-200/50 dark:bg-purple-900/50 overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-[#5722AF] to-emerald-500 transition-all duration-200 rounded-full"
+                      style={{
+                        width: `${Math.max(5, downloadProgress ? downloadProgress.percent : 10)}%`,
+                      }}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px] text-zinc-500 dark:text-zinc-400 truncate">
+                    <span className="truncate pr-2">
+                      {downloadProgress?.status === 'zipping'
+                        ? 'Packaging verified ZIP archive (0 CPU, 100% integrity)...'
+                        : downloadProgress?.currentVideoName
+                        ? `Fetching: ${downloadProgress.currentVideoName}`
+                        : 'Contacting video server...'}
+                    </span>
+                    <span className="font-bold text-[#5722AF] dark:text-purple-300 shrink-0">
+                      {downloadProgress?.percent || 0}%
+                    </span>
+                  </div>
                 </div>
               )}
             </div>

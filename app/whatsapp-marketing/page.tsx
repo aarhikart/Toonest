@@ -65,6 +65,7 @@ export default function WhatsAppMarketingPage() {
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [adminViewMode, setAdminViewMode] = useState<'admin_center' | 'sender_studio'>('admin_center');
+  const [isUserSidebarOpen, setIsUserSidebarOpen] = useState(false);
 
   // Plan Limits Config State
   const [planLimits, setPlanLimits] = useState<PlanLimitsConfig>(DEFAULT_PLAN_LIMITS);
@@ -290,6 +291,8 @@ export default function WhatsAppMarketingPage() {
       <Header
         activeToolName="WhatsApp Marketing Platform"
         hideBrowseTools={true}
+        onToggleUserSidebar={currentUser ? () => setIsUserSidebarOpen(prev => !prev) : undefined}
+        user={currentUser ? { username: currentUser.username, businessName: currentUser.businessName } : null}
         onOpenHelp={() => setActiveGuideStep(1)}
       />
 
@@ -383,6 +386,8 @@ export default function WhatsAppMarketingPage() {
               user={currentUser}
               onLogout={handleLogout}
               planLimits={planLimits}
+              isOpen={isUserSidebarOpen}
+              onToggleSidebar={() => setIsUserSidebarOpen(prev => !prev)}
               onOpenAdminCenter={
                 currentUser.role === 'admin' ? () => setAdminViewMode('admin_center') : undefined
               }

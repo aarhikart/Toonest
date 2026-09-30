@@ -437,6 +437,14 @@ export function Sidebar({
       href: '/call-history',
       badge: 'Available',
     },
+    {
+      id: 'live-streamer',
+      name: 'Live Streamer',
+      desc: 'Re-stream YouTube Live to Facebook & Instagram Live simultaneously',
+      icon: <Tv className="w-4 h-4" />,
+      href: '/live-streamer',
+      badge: 'New',
+    },
   ];
 
   const calculatorTools = [

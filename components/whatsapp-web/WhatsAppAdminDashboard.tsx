@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Users,
   Send,
@@ -139,6 +139,25 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
   const [isWaConnectModalOpen, setIsWaConnectModalOpen] = useState(false);
   const [pendingTrialForApproval, setPendingTrialForApproval] = useState<TrialRequestItem | null>(null);
   const [isCheckingWa, setIsCheckingWa] = useState(false);
+  const [trialApprovalToast, setTrialApprovalToast] = useState<{
+    type: 'success' | 'error';
+    businessName: string;
+    username?: string;
+    password?: string;
+    waMsg?: string;
+    error?: string;
+  } | null>(null);
+  const pendingTrialRef = useRef<TrialRequestItem | null>(null);
+  const approvingTrialRef = useRef<Set<string>>(new Set());
+
+  // Auto-dismiss trial approval toast after 10 seconds
+  useEffect(() => {
+    if (!trialApprovalToast) return;
+    const timer = setTimeout(() => {
+      setTrialApprovalToast(null);
+    }, 10000);
+    return () => clearTimeout(timer);
+  }, [trialApprovalToast]);
 
   // Trial Requests State
   const [trialRequests, setTrialRequests] = useState<TrialRequestItem[]>([]);
@@ -450,6 +469,11 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
   };
 
   const executeTrialApproval = async (reqItem: TrialRequestItem) => {
+    if (!reqItem || !reqItem.id) return;
+    // Single-flight guard: prevent duplicate concurrent runs
+    if (approvingTrialRef.current.has(reqItem.id)) return;
+    approvingTrialRef.current.add(reqItem.id);
+
     setApprovingTrialId(reqItem.id);
     try {
       const res = await fetch('/api/admin/trial', {
@@ -463,17 +487,36 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
       const data = await res.json();
       if (data.success) {
         const waMsg = data.whatsappSent
-          ? '✅ Login credentials automatically sent to user on WhatsApp!'
-          : '⚠️ Account created, but WhatsApp message could not be delivered.';
-        alert(`🎉 Trial Approved for "${reqItem.businessName}"!\n\n• Username: @${data.credentials?.username}\n• Password: ${data.credentials?.password}\n\n${waMsg}`);
+          ? 'Login credentials automatically sent to user on WhatsApp!'
+          : 'Account created, but WhatsApp message could not be delivered.';
+        // Clean non-blocking toast, no intrusive alert()
+        setTrialApprovalToast({
+          type: 'success',
+          businessName: reqItem.businessName,
+          username: data.credentials?.username,
+          password: data.credentials?.password,
+          waMsg
+        });
         await Promise.all([fetchTrialRequests(), fetchUsers()]);
       } else {
-        alert(data.error || 'Failed to approve trial request.');
+        setTrialApprovalToast({
+          type: 'error',
+          businessName: reqItem.businessName,
+          error: data.error || 'Failed to approve trial request.'
+        });
       }
     } catch (err: any) {
-      alert(err.message || 'Error approving trial request.');
+      setTrialApprovalToast({
+        type: 'error',
+        businessName: reqItem.businessName,
+        error: err.message || 'Error approving trial request.'
+      });
     } finally {
       setApprovingTrialId(null);
+      // Keep lock for 6 seconds to block any race condition calls
+      setTimeout(() => {
+        approvingTrialRef.current.delete(reqItem.id);
+      }, 6000);
     }
   };
 
@@ -486,26 +529,31 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
       setIsCheckingWa(false);
 
       if (!isConnected) {
-        // If WhatsApp Web is not connected, ask admin to connect WhatsApp using the existing connection process
+        pendingTrialRef.current = reqItem;
         setPendingTrialForApproval(reqItem);
         setIsWaConnectModalOpen(true);
         setApprovingTrialId(null);
         return;
       }
 
-      // Step 2: WhatsApp is connected -> execute approval and send WhatsApp message
+      // Step 2: WhatsApp is connected -> execute approval directly and auto-send WhatsApp message
       await executeTrialApproval(reqItem);
     } catch (err: any) {
       setIsCheckingWa(false);
       setApprovingTrialId(null);
-      alert(err.message || 'Error verifying WhatsApp connection status.');
+      setTrialApprovalToast({
+        type: 'error',
+        businessName: reqItem.businessName,
+        error: err.message || 'Error verifying WhatsApp connection status.'
+      });
     }
   };
 
   const handleAdminSessionChange = (newSession: WhatsAppWebSession) => {
     setAdminSession(newSession);
-    if (newSession.connected && pendingTrialForApproval) {
-      const item = pendingTrialForApproval;
+    if (newSession.connected && pendingTrialRef.current) {
+      const item = pendingTrialRef.current;
+      pendingTrialRef.current = null;
       setPendingTrialForApproval(null);
       setIsWaConnectModalOpen(false);
       executeTrialApproval(item);
@@ -514,19 +562,21 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
 
   // Live polling while connect modal is open
   useEffect(() => {
-    if (!isWaConnectModalOpen || !pendingTrialForApproval) return;
+    if (!isWaConnectModalOpen) return;
     const interval = setInterval(async () => {
+      if (!pendingTrialRef.current) return;
       const isConn = await checkAdminWhatsAppConnected(adminUid);
-      if (isConn) {
+      if (isConn && pendingTrialRef.current) {
         clearInterval(interval);
-        const item = pendingTrialForApproval;
-        setIsWaConnectModalOpen(false);
+        const item = pendingTrialRef.current;
+        pendingTrialRef.current = null;
         setPendingTrialForApproval(null);
+        setIsWaConnectModalOpen(false);
         executeTrialApproval(item);
       }
-    }, 2500);
+    }, 2000);
     return () => clearInterval(interval);
-  }, [isWaConnectModalOpen, pendingTrialForApproval, adminUid]);
+  }, [isWaConnectModalOpen, adminUid]);
 
   const handleRejectTrial = async (reqItem: TrialRequestItem) => {
     if (!window.confirm(`Reject free trial request from "${reqItem.businessName}"?`)) return;
@@ -1204,6 +1254,57 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
             </div>
           )}
         </div>
+
+        {/* Trial Approval Status Banner Toast */}
+        {trialApprovalToast && (
+          <div className="mx-6 mb-4">
+            <div
+              className={`p-4 rounded-xl border flex items-start justify-between gap-3 shadow-xs transition-all ${
+                trialApprovalToast.type === 'success'
+                  ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200'
+                  : 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800 text-rose-900 dark:text-rose-200'
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                {trialApprovalToast.type === 'success' ? (
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                ) : (
+                  <AlertCircle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                )}
+                <div className="text-xs sm:text-sm">
+                  {trialApprovalToast.type === 'success' ? (
+                    <>
+                      <p className="font-bold text-emerald-800 dark:text-emerald-300">
+                        🎉 Free Trial Approved for &quot;{trialApprovalToast.businessName}&quot;!
+                      </p>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 font-mono text-xs">
+                        <span className="bg-emerald-100 dark:bg-emerald-900/60 px-2 py-0.5 rounded font-semibold text-emerald-800 dark:text-emerald-200">
+                          Username: @{trialApprovalToast.username}
+                        </span>
+                        <span className="bg-emerald-100 dark:bg-emerald-900/60 px-2 py-0.5 rounded font-semibold text-emerald-800 dark:text-emerald-200">
+                          Password: {trialApprovalToast.password}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-400">
+                        {trialApprovalToast.waMsg}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="font-semibold">{trialApprovalToast.error}</p>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTrialApprovalToast(null)}
+                className="p-1 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition cursor-pointer"
+                title="Dismiss"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Tab 1: User Accounts Table */}
         {activeTab === 'users' && (
@@ -2362,6 +2463,7 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
               </div>
               <button
                 onClick={() => {
+                  pendingTrialRef.current = null;
                   setIsWaConnectModalOpen(false);
                   setPendingTrialForApproval(null);
                 }}
@@ -2393,6 +2495,7 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
               <button
                 type="button"
                 onClick={() => {
+                  pendingTrialRef.current = null;
                   setIsWaConnectModalOpen(false);
                   setPendingTrialForApproval(null);
                 }}
@@ -2406,10 +2509,13 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
                 onClick={async () => {
                   const isConn = await checkAdminWhatsAppConnected(adminUid);
                   if (isConn) {
-                    const item = pendingTrialForApproval;
-                    setIsWaConnectModalOpen(false);
-                    setPendingTrialForApproval(null);
-                    executeTrialApproval(item);
+                    if (pendingTrialRef.current) {
+                      const item = pendingTrialRef.current;
+                      pendingTrialRef.current = null;
+                      setIsWaConnectModalOpen(false);
+                      setPendingTrialForApproval(null);
+                      executeTrialApproval(item);
+                    }
                   } else {
                     alert('WhatsApp is not connected yet. Please scan the QR code or link your phone above.');
                   }

@@ -148,6 +148,19 @@ export function formatTitleToFilename(
  * Prioritizes card-level elements (.card, <video id="vid-X">, data-src, src, a.btn-red),
  * sets the filename directly to the video's title text, and strictly eliminates non-video links.
  */
+/**
+ * Decodes HTML entities and normalizes video URLs
+ */
+export function cleanExtractedUrl(url: string | null | undefined): string {
+  if (!url || typeof url !== 'string') return '';
+  return url
+    .trim()
+    .replace(/&amp;/g, '&')
+    .replace(/&#38;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
 export function parseVideosFromHtml(htmlContent: string): ParseResult {
   const usedFilenames = new Map<string, number>();
   const videos: ExtractedVideo[] = [];
@@ -243,14 +256,15 @@ export function parseVideosFromHtml(htmlContent: string): ParseResult {
 
           if (videoUrl && isActualVideoUrl(videoUrl)) {
             // Title is prioritized as the primary filename
+            const cleanUrl = cleanExtractedUrl(videoUrl);
             const rawFilename = downloadAttr || `video_${counter}.mp4`;
-            const baseFilename = formatTitleToFilename(title, downloadAttr, counter, videoUrl);
+            const baseFilename = formatTitleToFilename(title, downloadAttr, counter, cleanUrl);
             const uniqueFilename = getUniqueFilename(baseFilename);
 
             videos.push({
               id: counter,
               originalIndex: counter,
-              url: videoUrl,
+              url: cleanUrl,
               filename: uniqueFilename,
               title,
               originalFilename: rawFilename,
@@ -276,14 +290,15 @@ export function parseVideosFromHtml(htmlContent: string): ParseResult {
 
           if (!candidate || !isActualVideoUrl(candidate)) return;
 
+          const cleanUrl = cleanExtractedUrl(candidate);
           const rawFilename = `video_${counter}.mp4`;
-          const baseFilename = formatTitleToFilename(null, null, counter, candidate);
+          const baseFilename = formatTitleToFilename(null, null, counter, cleanUrl);
           const uniqueFilename = getUniqueFilename(baseFilename);
 
           videos.push({
             id: counter,
             originalIndex: counter,
-            url: candidate,
+            url: cleanUrl,
             filename: uniqueFilename,
             originalFilename: rawFilename,
             source: 'Video Tag',
@@ -302,14 +317,15 @@ export function parseVideosFromHtml(htmlContent: string): ParseResult {
 
           if (!href || !isActualVideoUrl(href)) return;
 
+          const cleanUrl = cleanExtractedUrl(href);
           const rawFilename = downloadAttr || `video_${counter}.mp4`;
-          const baseFilename = formatTitleToFilename(anchorTitle, downloadAttr, counter, href);
+          const baseFilename = formatTitleToFilename(anchorTitle, downloadAttr, counter, cleanUrl);
           const uniqueFilename = getUniqueFilename(baseFilename);
 
           videos.push({
             id: counter,
             originalIndex: counter,
-            url: href,
+            url: cleanUrl,
             filename: uniqueFilename,
             title: anchorTitle,
             originalFilename: rawFilename,
@@ -378,14 +394,15 @@ export function parseVideosFromHtml(htmlContent: string): ParseResult {
       }
 
       if (videoUrl && isActualVideoUrl(videoUrl)) {
+        const cleanUrl = cleanExtractedUrl(videoUrl);
         const rawFilename = downloadAttr || `video_${counter}.mp4`;
-        const baseFilename = formatTitleToFilename(title, downloadAttr, counter, videoUrl);
+        const baseFilename = formatTitleToFilename(title, downloadAttr, counter, cleanUrl);
         const uniqueFilename = getUniqueFilename(baseFilename);
 
         videos.push({
           id: counter,
           originalIndex: counter,
-          url: videoUrl,
+          url: cleanUrl,
           filename: uniqueFilename,
           title,
           originalFilename: rawFilename,
@@ -402,14 +419,15 @@ export function parseVideosFromHtml(htmlContent: string): ParseResult {
       while ((vMatch = videoRegex.exec(htmlContent)) !== null) {
         const url = vMatch[1].trim();
         if (isActualVideoUrl(url)) {
+          const cleanUrl = cleanExtractedUrl(url);
           const rawFilename = `video_${counter}.mp4`;
-          const baseFilename = formatTitleToFilename(null, null, counter, url);
+          const baseFilename = formatTitleToFilename(null, null, counter, cleanUrl);
           const uniqueFilename = getUniqueFilename(baseFilename);
 
           videos.push({
             id: counter,
             originalIndex: counter,
-            url,
+            url: cleanUrl,
             filename: uniqueFilename,
             originalFilename: rawFilename,
             source: 'Regex Video Tag',
@@ -425,17 +443,18 @@ export function parseVideosFromHtml(htmlContent: string): ParseResult {
         const tag = anchorMatch[0];
         const href = anchorMatch[1].trim();
         if (isActualVideoUrl(href)) {
+          const cleanUrl = cleanExtractedUrl(href);
           const dlMatch = /download=["']([^"'>\s]*)["']/i.exec(tag);
           const downloadAttr = dlMatch ? dlMatch[1] : '';
 
           const rawFilename = downloadAttr || `video_${counter}.mp4`;
-          const baseFilename = formatTitleToFilename(null, downloadAttr, counter, href);
+          const baseFilename = formatTitleToFilename(null, downloadAttr, counter, cleanUrl);
           const uniqueFilename = getUniqueFilename(baseFilename);
 
           videos.push({
             id: counter,
             originalIndex: counter,
-            url: href,
+            url: cleanUrl,
             filename: uniqueFilename,
             originalFilename: rawFilename,
             source: 'Regex Anchor Match',
@@ -451,14 +470,15 @@ export function parseVideosFromHtml(htmlContent: string): ParseResult {
         while ((urlMatch = urlRegex.exec(htmlContent)) !== null) {
           const url = urlMatch[1].trim();
           if (isActualVideoUrl(url)) {
+            const cleanUrl = cleanExtractedUrl(url);
             const rawFilename = `video_${counter}.mp4`;
-            const baseFilename = formatTitleToFilename(null, null, counter, url);
+            const baseFilename = formatTitleToFilename(null, null, counter, cleanUrl);
             const uniqueFilename = getUniqueFilename(baseFilename);
 
             videos.push({
               id: counter,
               originalIndex: counter,
-              url,
+              url: cleanUrl,
               filename: uniqueFilename,
               originalFilename: rawFilename,
               source: 'Regex URL Pattern',

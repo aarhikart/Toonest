@@ -10,7 +10,8 @@
     "whatsapp:worker": "cd services/whatsapp-service && node dist/server.js",
     "whatsapp:build": "cd services/whatsapp-service && npm run build",
     "whatsapp:tunnel": "node scripts/start-whatsapp-system.js",
-    "whatsapp:tunnel:standalone": "npx cloudflared tunnel --url http://localhost:5001"
+    "whatsapp:tunnel:standalone": "npx cloudflared tunnel --url http://localhost:5001",
+    "streaming:worker": "node services/streaming-worker/server.js"
   },
   "dependencies": {
     "@prisma/client": "^6.4.1",

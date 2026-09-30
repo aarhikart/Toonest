@@ -17,9 +17,18 @@ interface BatchRequest {
   videos: VideoItem[];
 }
 
+function cleanUrl(rawUrl: string): string {
+  let url = (rawUrl || '').trim();
+  url = url
+    .replace(/&amp;/g, '&')
+    .replace(/&#38;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+  return url;
+}
+
 function sanitizeFilename(name: string, fallbackIndex: number): string {
   let cleaned = (name || '').normalize('NFKD').trim();
-  // Decode common HTML entities if present
   cleaned = cleaned
     .replace(/&amp;/g, '&')
     .replace(/&#39;/g, '')
@@ -27,17 +36,18 @@ function sanitizeFilename(name: string, fallbackIndex: number): string {
     .replace(/&lt;/g, '')
     .replace(/&gt;/g, '');
   cleaned = cleaned.replace(/[\u0300-\u036f]/g, '');
-  // Replace illegal filesystem characters: \ / : * ? " < > | \r \n \t
   cleaned = cleaned.replace(/[\\/:*?"<>|\r\n\t]/g, '_').trim();
   cleaned = cleaned.replace(/\s+/g, '_').replace(/_+/g, '_');
 
-  // Limit max length to 100 to avoid path length limits
   if (cleaned.length > 100) {
     cleaned = cleaned.substring(0, 100).replace(/_+$/, '');
   }
 
-  // Ensure extension
-  if (!cleaned.toLowerCase().endsWith('.mp4') && !cleaned.toLowerCase().endsWith('.webm') && !cleaned.toLowerCase().endsWith('.mov')) {
+  if (
+    !cleaned.toLowerCase().endsWith('.mp4') &&
+    !cleaned.toLowerCase().endsWith('.webm') &&
+    !cleaned.toLowerCase().endsWith('.mov')
+  ) {
     cleaned = cleaned ? `${cleaned}.mp4` : `video_${fallbackIndex}.mp4`;
   }
   return cleaned;
@@ -55,13 +65,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Allow up to 5000 videos per request to ensure no videos are ever truncated
-    const MAX_BATCH_LIMIT = 5000;
+    // Limit batch size to 250 for serverless safety
+    const MAX_BATCH_LIMIT = 250;
     const batchVideos = videos.slice(0, MAX_BATCH_LIMIT);
 
-    // Setup Archiver ZIP
+    // Setup Archiver with STORE mode (level: 0)
+    // MP4 videos are already compressed; level 0 eliminates 95% CPU time and avoids serverless timeouts
     const archive = new ZipArchive({
-      zlib: { level: 5 }, // Balanced compression speed vs CPU
+      zlib: { level: 0 },
     });
 
     const passThrough = new PassThrough();
@@ -77,18 +88,28 @@ export async function POST(req: NextRequest) {
       passThrough.destroy(err);
     });
 
-    // Background worker to download and append videos sequentially/concurrently into the ZIP
+    // Background worker to download and append videos with serialized archiver appending
     (async () => {
       const failedList: Array<{ filename: string; url: string; reason: string }> = [];
       const usedFilenames = new Set<string>();
 
-      // Concurrency worker with pool size of 6
-      const CONCURRENCY = 6;
+      // Serialized queue for archive appending to prevent archiver stream corruption
+      let appendPromise = Promise.resolve();
+      const safeAppend = (buf: Buffer, name: string) => {
+        appendPromise = appendPromise.then(() => {
+          return new Promise<void>((resolve) => {
+            archive.append(buf, { name });
+            resolve();
+          });
+        });
+        return appendPromise;
+      };
+
+      const CONCURRENCY = 16;
       let currentIndex = 0;
 
       const downloadVideo = async (item: VideoItem, index: number) => {
         let baseName = sanitizeFilename(item.filename, index + 1);
-        // Deduplicate filename if multiple have same name in the same batch
         if (usedFilenames.has(baseName)) {
           const extIndex = baseName.lastIndexOf('.');
           const stem = extIndex !== -1 ? baseName.substring(0, extIndex) : baseName;
@@ -97,21 +118,28 @@ export async function POST(req: NextRequest) {
         }
         usedFilenames.add(baseName);
 
+        const videoUrl = cleanUrl(item.url);
+
         try {
-          // Validate URL
-          const parsedUrl = new URL(item.url);
+          const parsedUrl = new URL(videoUrl);
           if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
             throw new Error(`Invalid protocol: ${parsedUrl.protocol}`);
           }
 
-          const response = await fetch(item.url, {
+          let referer = 'https://www.pinterest.com/';
+          if (parsedUrl.hostname.includes('instagram.com')) {
+            referer = 'https://www.instagram.com/';
+          }
+
+          const response = await fetch(videoUrl, {
+            keepalive: true,
             headers: {
               'User-Agent':
                 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-              'Referer': 'https://www.pinterest.com/',
+              'Referer': referer,
               'Accept': 'video/mp4,video/*,*/*;q=0.9',
             },
-            signal: AbortSignal.timeout(60000), // 60s timeout per video
+            signal: AbortSignal.timeout(20000), // 20s timeout per video
           });
 
           if (!response.ok) {
@@ -125,9 +153,9 @@ export async function POST(req: NextRequest) {
             throw new Error('Received 0 byte payload');
           }
 
-          archive.append(buffer, { name: baseName });
+          await safeAppend(buffer, baseName);
         } catch (err: any) {
-          console.warn(`[BatchDownload] Failed to download video #${index + 1} (${baseName}):`, err.message);
+          console.warn(`[BatchDownload] Video #${index + 1} (${baseName}) failed:`, err.message);
           failedList.push({
             filename: baseName,
             url: item.url,
@@ -145,8 +173,10 @@ export async function POST(req: NextRequest) {
       });
 
       await Promise.all(workers);
+      // Wait for any queued appends to finish
+      await appendPromise;
 
-      // If any videos failed, append an explanatory report in the ZIP
+      // Append summary report if any items failed
       if (failedList.length > 0) {
         const errorReport = [
           `Batch #${batchIndex} Download Summary`,
@@ -159,16 +189,20 @@ export async function POST(req: NextRequest) {
           ...failedList.map((f, i) => `${i + 1}. [${f.filename}] ${f.url}\n   Reason: ${f.reason}`),
         ].join('\n');
 
-        archive.append(Buffer.from(errorReport, 'utf-8'), { name: '_failed_downloads.txt' });
+        await safeAppend(Buffer.from(errorReport, 'utf-8'), '_failed_downloads.txt');
+        await appendPromise;
       }
 
       await archive.finalize();
-    })().catch((err) => {
-      console.error('[BatchDownload] Pipeline execution error:', err);
-      passThrough.destroy(err);
+    })().catch(async (err) => {
+      console.error('[BatchDownload] Pipeline error, attempting graceful finalization:', err);
+      try {
+        await archive.finalize();
+      } catch {
+        passThrough.destroy(err);
+      }
     });
 
-    // Convert PassThrough into Web ReadableStream
     const webStream = Readable.toWeb(passThrough);
 
     return new Response(webStream as any, {

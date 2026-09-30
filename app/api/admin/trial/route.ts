@@ -70,6 +70,19 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'approve') {
+      // Prevent duplicate approval & duplicate WhatsApp message dispatch
+      if (trialReq.status === 'approved') {
+        return NextResponse.json({
+          success: true,
+          message: `Trial is already approved for "${trialReq.businessName}".`,
+          credentials: {
+            username: trialReq.assignedUsername,
+            password: trialReq.assignedPassword
+          },
+          whatsappSent: true
+        });
+      }
+
       // Generate clean username and password based on their business name
       const cleanBiz = (trialReq.businessName || 'user').toLowerCase().replace(/[^a-z0-9]/g, '');
       const bizPrefix = cleanBiz.slice(0, 10) || 'user';
