@@ -37,7 +37,7 @@ export default function BatchVideoDownloaderPage() {
   const [htmlFileName, setHtmlFileName] = useState<string | null>(null);
   const [htmlFileSize, setHtmlFileSize] = useState<number | null>(null);
   const [videos, setVideos] = useState<ExtractedVideo[]>([]);
-  const [batchSize, setBatchSize] = useState<number>(100);
+  const [batchSize, setBatchSize] = useState<number>(50);
   const [activeBatchIndex, setActiveBatchIndex] = useState<number>(1);
   const [completedBatches, setCompletedBatches] = useState<Set<number>>(new Set());
   const [isDownloading, setIsDownloading] = useState<boolean>(false);
@@ -47,7 +47,7 @@ export default function BatchVideoDownloaderPage() {
   const [successToast, setSuccessToast] = useState<string | null>(null);
   const [autoAdvanceEnabled, setAutoAdvanceEnabled] = useState<boolean>(true);
   const [namingMode, setNamingMode] = useState<'title' | 'pinId'>('title');
-  const [downloadSpeed, setDownloadSpeed] = useState<number>(16);
+  const [downloadSpeed, setDownloadSpeed] = useState<number>(6);
   const [downloadProgress, setDownloadProgress] = useState<BatchDownloadProgress | null>(null);
   const [multiPartStatus, setMultiPartStatus] = useState<{ currentPart: number; totalParts: number } | null>(null);
 
@@ -221,16 +221,17 @@ export default function BatchVideoDownloaderPage() {
 
       const nextBatchIndex = batchIdxToDownload + 1;
       const isLastBatch = batchIdxToDownload >= totalBatches;
+      const partialNotice = result.failedCount > 0 ? ` (${result.downloadedCount}/${result.totalVideos} videos saved)` : '';
 
       if (!isLastBatch && autoAdvanceEnabled) {
         setActiveBatchIndex(nextBatchIndex);
         setSuccessToast(
-          `Batch #${batchIdxToDownload} saved! Automatically advanced to Batch #${nextBatchIndex}.`
+          `Batch #${batchIdxToDownload} saved${partialNotice}! Automatically advanced to Batch #${nextBatchIndex}.`
         );
       } else if (isLastBatch) {
-        setSuccessToast(`Batch #${batchIdxToDownload} saved! All batches are now complete! 🎉`);
+        setSuccessToast(`Batch #${batchIdxToDownload} saved${partialNotice}! All batches are now complete! 🎉`);
       } else {
-        setSuccessToast(`Batch #${batchIdxToDownload} downloaded successfully!`);
+        setSuccessToast(`Batch #${batchIdxToDownload} downloaded successfully${partialNotice}!`);
       }
     } catch (err: any) {
       if (controller.signal.aborted) return;
@@ -284,7 +285,8 @@ export default function BatchVideoDownloaderPage() {
         const allDone = new Set<number>();
         allDone.add(1);
         setCompletedBatches(allDone);
-        setSuccessToast(`All ${totalVideos} videos downloaded successfully in a single verified ZIP! 🎉`);
+        const partialNotice = result.failedCount > 0 ? ` (${result.downloadedCount}/${totalVideos} saved)` : '';
+        setSuccessToast(`All ${result.downloadedCount} videos downloaded successfully in a single verified ZIP! 🎉${partialNotice}`);
       } else {
         // Multi-Part sequential downloader for large video collections (e.g. 200 - 1,380+ videos)
         // Downloads Part 1, Part 2, ... automatically without hitting Vercel timeouts or browser memory limits
@@ -321,8 +323,8 @@ export default function BatchVideoDownloaderPage() {
           allDone.add(batchIdx);
           setCompletedBatches(new Set(allDone));
 
-          // Instant progression between parts
-          await new Promise((r) => setTimeout(r, 100));
+          // Brief pause between parts to allow browser download manager to register file
+          await new Promise((r) => setTimeout(r, 1000));
         }
 
         if (!controller.signal.aborted) {
@@ -648,8 +650,9 @@ export default function BatchVideoDownloaderPage() {
                       <span>Speed:</span>
                     </div>
                     {[
-                      { label: 'Turbo (16x)', value: 16 },
-                      { label: 'Fast (10x)', value: 10 },
+                      { label: 'Turbo (6x)', value: 6 },
+                      { label: 'Fast (4x)', value: 4 },
+                      { label: 'Max (8x)', value: 8 },
                     ].map((sp) => (
                       <button
                         key={sp.value}

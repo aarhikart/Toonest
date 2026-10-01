@@ -47,6 +47,8 @@ import {
   Camera,
   Phone,
   Tv,
+  Star,
+  Crown,
 } from 'lucide-react';
 
 
@@ -443,6 +445,22 @@ export function Sidebar({
       desc: 'Re-stream YouTube Live to Facebook & Instagram Live simultaneously',
       icon: <Tv className="w-4 h-4" />,
       href: '/live-streamer',
+      badge: 'New',
+    },
+    {
+      id: 'google-review-automator',
+      name: 'Google Review Automator',
+      desc: 'Browser console automation script generator for Google Maps & Hotels reviews',
+      icon: <Star className="w-4 h-4" />,
+      href: '/google-review-automator',
+      badge: 'New',
+    },
+    {
+      id: 'chess',
+      name: 'Chess Online & AI',
+      desc: 'Play vs adaptive AI bot or real-time friend with room links',
+      icon: <Crown className="w-4 h-4" />,
+      href: '/chess',
       badge: 'New',
     },
   ];
