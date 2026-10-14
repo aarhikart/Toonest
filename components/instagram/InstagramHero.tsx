@@ -43,6 +43,17 @@ export function InstagramHero() {
           No Account Required
         </span>
       </div>
+
+      {/* Bulk HTML Downloader link */}
+      <div className="pt-2">
+        <a
+          href="/instagram-bulk-downloader"
+          className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-semibold bg-sky-50 dark:bg-sky-950/50 hover:bg-sky-100 dark:hover:bg-sky-900/50 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800 transition-colors"
+        >
+          <Sparkles className="w-3.5 h-3.5 text-sky-500" />
+          <span>Need bulk download? Upload your reels HTML list here →</span>
+        </a>
+      </div>
     </div>
   );
 }

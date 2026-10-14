@@ -206,7 +206,7 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
         setPairingError(data.error);
       }
     } catch {
-      setPairingError('Could not reach WhatsApp session worker.');
+      setPairingError('The server is down. Please try after some time.');
     } finally {
       setIsRequestingPairing(false);
     }
@@ -388,24 +388,20 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
         </form>
       )}
 
-      {/* Offline Guidance when on Vercel and Worker is not reachable */}
+      {/* Offline Banner when server is down */}
       {!isWorkerOnline && (
-        <div className="p-4 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-900 dark:text-amber-200">
-          <div className="flex items-start gap-2.5">
-            <WifiOff className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-            <div>
-              <p className="font-semibold">WhatsApp Server is currently offline or unreachable.</p>
-              <p className="text-[11px] text-amber-700 dark:text-amber-300 mt-0.5">
-                If hosted online, click <strong>&quot;Configure Server URL&quot;</strong> above to connect your server or tunnel, or start the server locally.
-              </p>
-            </div>
+        <div className="p-4 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 rounded-2xl flex items-center gap-3 text-xs text-amber-900 dark:text-amber-200 shadow-xs">
+          <div className="w-9 h-9 rounded-xl bg-amber-100 dark:bg-amber-900/50 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+            <WifiOff className="w-5 h-5" />
           </div>
-          <button
-            onClick={() => setShowConfig(true)}
-            className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-semibold shrink-0 transition"
-          >
-            Configure Worker URL
-          </button>
+          <div>
+            <p className="font-bold text-sm text-amber-900 dark:text-amber-200">
+              The server is down
+            </p>
+            <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
+              Please try after some time.
+            </p>
+          </div>
         </div>
       )}
 
@@ -428,10 +424,12 @@ export const WhatsAppWebConnect: React.FC<WhatsAppWebConnectProps> = ({ session,
                   <Loader2 className="w-8 h-8 text-[#5722AF] animate-spin" />
                   <div>
                     <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
-                      {isWorkerOnline ? 'Getting WhatsApp QR Code ready...' : 'Starting WhatsApp service...'}
+                      {isWorkerOnline ? 'Getting WhatsApp QR Code ready...' : 'The server is down'}
                     </p>
                     <p className="text-[11px] text-zinc-500 mt-1">
-                      {isRestarting ? 'Creating fresh QR code...' : (isWorkerOnline ? 'Preparing your WhatsApp connection...' : 'Connecting to WhatsApp service...')}
+                      {isWorkerOnline
+                        ? (isRestarting ? 'Creating fresh QR code...' : 'Preparing your WhatsApp connection...')
+                        : 'Please try after some time.'}
                     </p>
                   </div>
 

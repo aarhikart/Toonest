@@ -48,10 +48,17 @@ export async function POST(req: NextRequest) {
       userDoc?.role,
       userDoc?.subscriptionType,
       userDoc?.planType,
-      planLimits
+      planLimits,
+      userDoc?.customDailyLimit,
+      userDoc?.customLimitEnabled
     );
     const limit = typeof body.limit === 'number' && body.limit > 0 ? body.limit : resolvedLimit;
-    const resetHours = Number(body.resetHours) || planLimits.resetHours;
+    const defaultResetHours = WhatsAppLimitManager.getResetHours(
+      userDoc?.customResetHours,
+      userDoc?.customLimitEnabled,
+      planLimits.resetHours
+    );
+    const resetHours = Number(body.resetHours) || defaultResetHours;
     const windowMs = Math.max(1, resetHours) * 3600 * 1000;
     const now = Date.now();
 

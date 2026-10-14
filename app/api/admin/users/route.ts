@@ -51,6 +51,9 @@ export async function GET(req: NextRequest) {
           planEndDate: u.planEndDate || null,
           daysRemaining,
           isExpired,
+          customDailyLimit: u.customDailyLimit ?? null,
+          customResetHours: u.customResetHours ?? null,
+          customLimitEnabled: !!u.customLimitEnabled,
           createdAt: u.createdAt,
           campaignsCount: totalCampaigns,
           successfulMessages: totalSuccessful,
@@ -187,7 +190,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { id, status, password, businessName, phoneNumber } = body;
+    const { id, status, password, businessName, phoneNumber, customDailyLimit, customResetHours, customLimitEnabled } = body;
 
     if (!id) {
       return NextResponse.json({ success: false, error: 'User ID is required.' }, { status: 400 });
@@ -199,6 +202,18 @@ export async function PATCH(req: NextRequest) {
     if (password && password.trim()) updateData.password = hashPassword(password.trim());
     if (businessName && businessName.trim()) updateData.businessName = businessName.trim();
     if (phoneNumber && phoneNumber.trim()) updateData.phoneNumber = phoneNumber.trim();
+
+    if (customLimitEnabled !== undefined) {
+      const isEnabled = Boolean(customLimitEnabled);
+      updateData.customLimitEnabled = isEnabled;
+      if (isEnabled) {
+        updateData.customDailyLimit = Number(customDailyLimit) > 0 ? Number(customDailyLimit) : null;
+        updateData.customResetHours = Number(customResetHours) > 0 ? Number(customResetHours) : null;
+      } else {
+        updateData.customDailyLimit = null;
+        updateData.customResetHours = null;
+      }
+    }
 
     const updated = await User.findByIdAndUpdate(id, updateData, { new: true });
     if (!updated) {

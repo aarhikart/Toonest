@@ -17,7 +17,9 @@ import {
   Radio,
   Server,
   Loader2,
-  Gift
+  Gift,
+  Receipt,
+  AlertCircle
 } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
@@ -36,6 +38,7 @@ import { WhatsAppInfoSections } from '@/components/whatsapp-web/WhatsAppInfoSect
 import { WhatsAppTrialPopupModal } from '@/components/whatsapp-web/WhatsAppTrialPopupModal';
 import { WhatsAppPlansModal } from '@/components/whatsapp-web/WhatsAppPlansModal';
 import { WhatsAppRenewalModal } from '@/components/whatsapp-web/WhatsAppRenewalModal';
+import { WhatsAppInvoiceModal } from '@/components/whatsapp-web/WhatsAppInvoiceModal';
 import { PlanLimitsConfig, DEFAULT_PLAN_LIMITS } from '@/lib/whatsapp-web/limit-manager';
 import { LocalMediaStorage } from '@/lib/whatsapp-web/media-storage';
 
@@ -50,6 +53,9 @@ interface CurrentUser {
   planType?: '1_month' | '3_months' | '6_months' | null;
   daysRemaining?: number | null;
   isExpired?: boolean;
+  customDailyLimit?: number | null;
+  customResetHours?: number | null;
+  customLimitEnabled?: boolean;
 }
 
 export default function WhatsAppMarketingPage() {
@@ -59,6 +65,7 @@ export default function WhatsAppMarketingPage() {
   const [isTrialPopupOpen, setIsTrialPopupOpen] = useState(false);
   const [isPlansModalOpen, setIsPlansModalOpen] = useState(false);
   const [isRenewalModalOpen, setIsRenewalModalOpen] = useState(false);
+  const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
   const [renewalInitialPlan, setRenewalInitialPlan] = useState<'1_month' | '3_months' | '6_months'>('1_month');
 
   // Authentication State
@@ -286,6 +293,12 @@ export default function WhatsAppMarketingPage() {
     }
   };
 
+  const isPlanExpired = !!currentUser && currentUser.role !== 'admin' && (
+    currentUser.isExpired === true ||
+    (currentUser.daysRemaining !== undefined && currentUser.daysRemaining !== null && currentUser.daysRemaining <= 0) ||
+    currentUser.subscriptionType === 'none'
+  );
+
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-[#0a0d14] text-zinc-900 dark:text-zinc-100 flex flex-col transition-colors">
       <Header
@@ -396,7 +409,34 @@ export default function WhatsAppMarketingPage() {
                 setIsRenewalModalOpen(true);
               }}
               onOpenPlansModal={() => setIsPlansModalOpen(true)}
+              onOpenSendInvoice={() => setIsInvoiceModalOpen(true)}
             />
+
+            {/* Plan Expired Alert Banner */}
+            {isPlanExpired && (
+              <div className="p-4 sm:p-5 bg-rose-50/90 dark:bg-rose-950/40 border-2 border-rose-300 dark:border-rose-900 rounded-2xl sm:rounded-3xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-rose-100 dark:bg-rose-900/60 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                    <AlertCircle className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm sm:text-base font-bold text-rose-900 dark:text-rose-200">
+                      Your plan has expired
+                    </h3>
+                    <p className="text-xs sm:text-sm text-rose-700 dark:text-rose-300 mt-0.5">
+                      Your subscription or trial has ended. The <strong>Start Sending</strong> button is disabled until your plan is renewed.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsRenewalModalOpen(true)}
+                  className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition shadow-sm cursor-pointer shrink-0"
+                >
+                  Renew Plan Now
+                </button>
+              </div>
+            )}
 
             {/* Hero Section */}
             <div className="relative rounded-2xl sm:rounded-3xl p-5 sm:p-7 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xs overflow-hidden">
@@ -421,6 +461,14 @@ export default function WhatsAppMarketingPage() {
                 <div className="flex flex-wrap items-center gap-2 self-start md:self-auto shrink-0">
                   <button
                     type="button"
+                    onClick={() => setIsInvoiceModalOpen(true)}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-[#5722AF] to-[#7B45D1] hover:from-[#481c93] hover:to-[#6939b8] text-white text-xs font-semibold shadow-xs hover:shadow transition cursor-pointer"
+                  >
+                    <Receipt className="w-4 h-4" />
+                    <span>Send Invoice</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setIsPlansModalOpen(true)}
                     className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/30 hover:bg-purple-100 dark:hover:bg-purple-900/50 text-[#5722AF] dark:text-purple-300 text-xs font-semibold transition cursor-pointer"
                   >
@@ -440,7 +488,7 @@ export default function WhatsAppMarketingPage() {
             </div>
 
             {/* Step 1: Real WhatsApp Web Connection */}
-            <section className="space-y-2">
+            <section id="step-1-connect" className="space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#5722AF] dark:text-purple-400">
                   <span className="w-5 h-5 rounded-full bg-[#5722AF] text-white flex items-center justify-center text-[10px]">1</span>
@@ -487,6 +535,7 @@ export default function WhatsAppMarketingPage() {
                   onContactsChange={handleContactsChange}
                   messageTemplate={messageTemplate}
                   onOpenGuide={() => setActiveGuideStep(2)}
+                  onOpenSendInvoice={() => setIsInvoiceModalOpen(true)}
                 />
               </section>
 
@@ -547,6 +596,10 @@ export default function WhatsAppMarketingPage() {
                 userId={currentUser?.username?.toLowerCase()}
                 planLimits={planLimits}
                 currentUser={currentUser}
+                onOpenRenewalModal={plan => {
+                  if (plan) setRenewalInitialPlan(plan);
+                  setIsRenewalModalOpen(true);
+                }}
               />
             </section>
           </div>
@@ -598,6 +651,22 @@ export default function WhatsAppMarketingPage() {
             }}
           />
         )}
+
+        {/* Send Customer Invoice Modal */}
+        <WhatsAppInvoiceModal
+          isOpen={isInvoiceModalOpen}
+          onClose={() => setIsInvoiceModalOpen(false)}
+          currentUser={currentUser}
+          session={session}
+          contacts={contacts}
+          onContactsChange={handleContactsChange}
+          planLimits={planLimits}
+          onOpenConnect={() => {
+            setIsInvoiceModalOpen(false);
+            const el = document.getElementById('step-1-connect');
+            if (el) el.scrollIntoView({ behavior: 'smooth' });
+          }}
+        />
       </main>
 
       <Footer hideToolsList={true} />

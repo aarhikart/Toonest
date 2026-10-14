@@ -18,13 +18,13 @@ export const dynamic = 'force-dynamic';
  */
 export async function POST(req: NextRequest) {
   try {
-    // 1. Rate Limiting Check (20 requests per minute per IP)
+    // 1. Rate Limiting Check (120 requests per minute per IP for bulk operations)
     const ip =
       req.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
       req.headers.get('x-real-ip') ||
       'anonymous';
 
-    const rate = checkRateLimit(ip, 20, 60 * 1000);
+    const rate = checkRateLimit(ip, 120, 60 * 1000);
     if (!rate.allowed) {
       return NextResponse.json(
         {

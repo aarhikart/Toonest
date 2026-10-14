@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
       data = {
         success: false,
         error: res.status === 502 || res.status === 504 || rawText.includes('<!DOCTYPE')
-          ? `WhatsApp Worker Gateway is currently offline or unreachable at ${serviceUrl} (${res.status}). Please start the WhatsApp system on your laptop.`
+          ? 'The server is down. Please try after some time.'
           : `Unexpected worker response (${res.status}): ${rawText.substring(0, 100)}`
       };
     }
@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        error: `Unable to connect to WhatsApp worker at ${serviceUrl}. Please verify your laptop is running START_WHATSAPP_SYSTEM.bat.`
+        error: 'The server is down. Please try after some time.'
       },
       { status: 502 }
     );

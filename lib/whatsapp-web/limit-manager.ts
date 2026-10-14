@@ -38,16 +38,28 @@ const STORAGE_PREFIX = 'toolnest_limit_usage_';
 
 export class WhatsAppLimitManager {
   /**
-   * Determine the configured message limit for a user based on their plan
+   * Determine the configured message limit for a user based on their plan or custom limit
    */
   static getPlanLimit(
     userRole: string | undefined,
     subscriptionType: string | undefined,
     planType: string | null | undefined,
-    limits: PlanLimitsConfig = DEFAULT_PLAN_LIMITS
+    limits: PlanLimitsConfig = DEFAULT_PLAN_LIMITS,
+    customDailyLimit?: number | null,
+    customLimitEnabled?: boolean
   ): number {
     if (userRole === 'admin') {
       return 999999; // Unlimited for admin
+    }
+
+    // Check individual custom limit override
+    if (
+      customLimitEnabled &&
+      customDailyLimit !== undefined &&
+      customDailyLimit !== null &&
+      Number(customDailyLimit) > 0
+    ) {
+      return Number(customDailyLimit);
     }
 
     if (subscriptionType === 'trial' || planType === 'trial') {
@@ -68,6 +80,25 @@ export class WhatsAppLimitManager {
 
     // Default to free trial limit
     return Number(limits.trial) || DEFAULT_PLAN_LIMITS.trial;
+  }
+
+  /**
+   * Determine the effective reset window duration in hours for a user
+   */
+  static getResetHours(
+    customResetHours?: number | null,
+    customLimitEnabled?: boolean,
+    globalResetHours: number = DEFAULT_PLAN_LIMITS.resetHours
+  ): number {
+    if (
+      customLimitEnabled &&
+      customResetHours !== undefined &&
+      customResetHours !== null &&
+      Number(customResetHours) > 0
+    ) {
+      return Number(customResetHours);
+    }
+    return Number(globalResetHours) || DEFAULT_PLAN_LIMITS.resetHours;
   }
 
   /**

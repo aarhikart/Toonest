@@ -15,6 +15,9 @@ export interface IUser extends Document {
   planEndDate?: Date;
   trialReminderSent?: boolean;
   paidReminderSent?: boolean;
+  customDailyLimit?: number | null;
+  customResetHours?: number | null;
+  customLimitEnabled?: boolean;
   createdAt: Date;
 }
 
@@ -33,6 +36,9 @@ const UserSchema = new Schema<IUser>({
   planEndDate: { type: Date },
   trialReminderSent: { type: Boolean, default: false },
   paidReminderSent: { type: Boolean, default: false },
+  customDailyLimit: { type: Number, default: null },
+  customResetHours: { type: Number, default: null },
+  customLimitEnabled: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now }
 }, { strict: false });
 
@@ -162,10 +168,41 @@ const UserQuotaSchema = new Schema<IUserQuota>({
   updatedAt: { type: Date, default: Date.now }
 });
 
+export interface IInvoice extends Document {
+  userId?: mongoose.Types.ObjectId;
+  username: string;
+  businessName: string;
+  customerName: string;
+  customerPhone: string;
+  invoiceNumber?: string;
+  amount?: number;
+  message: string;
+  status: 'SENT' | 'FAILED' | 'SAVED';
+  sentAt?: Date;
+  error?: string;
+  createdAt: Date;
+}
+
+const InvoiceSchema = new Schema<IInvoice>({
+  userId: { type: Schema.Types.ObjectId, ref: 'User', index: true },
+  username: { type: String, required: true, index: true, lowercase: true, trim: true },
+  businessName: { type: String, default: '', trim: true },
+  customerName: { type: String, required: true, trim: true },
+  customerPhone: { type: String, required: true, trim: true },
+  invoiceNumber: { type: String, default: '', trim: true },
+  amount: { type: Number, default: 0 },
+  message: { type: String, required: true },
+  status: { type: String, enum: ['SENT', 'FAILED', 'SAVED'], default: 'SAVED' },
+  sentAt: { type: Date },
+  error: { type: String, default: '' },
+  createdAt: { type: Date, default: Date.now }
+});
+
 export const User = models.User || model<IUser>('User', UserSchema);
 export const Campaign = models.Campaign || model<ICampaign>('Campaign', CampaignSchema);
 export const SystemSetting = models.SystemSetting || model<ISystemSetting>('SystemSetting', SystemSettingSchema);
 export const TrialRequest = models.TrialRequest || model<ITrialRequest>('TrialRequest', TrialRequestSchema);
 export const RenewalRequest = models.RenewalRequest || model<IRenewalRequest>('RenewalRequest', RenewalRequestSchema);
 export const UserQuota = models.UserQuota || model<IUserQuota>('UserQuota', UserQuotaSchema);
+export const Invoice = models.Invoice || model<IInvoice>('Invoice', InvoiceSchema);
 

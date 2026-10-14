@@ -238,6 +238,80 @@ app.post('/send', verifySecret, async (req, res) => {
         res.status(500).json({ success: false, error: err.message });
     }
 });
+// Check Single Phone Number for WhatsApp Account
+app.post('/check-number', verifySecret, async (req, res) => {
+    try {
+        const userId = getUserId(req);
+        let engine = sessionManager.getSession(userId, false);
+        // If requested user is not connected, fallback to ANY active connected session on the worker!
+        if (!engine || !engine.getStatus().isConnected || !engine.getClient()) {
+            const all = sessionManager.listSessions();
+            const connected = all.find(s => s.status.isConnected);
+            if (connected) {
+                engine = sessionManager.getSession(connected.userId, false);
+            }
+        }
+        if (!engine || !engine.getStatus().isConnected || !engine.getClient()) {
+            return res.status(200).json({
+                success: false,
+                connected: false,
+                error: `No WhatsApp session is currently connected. Please connect WhatsApp to verify live accounts.`
+            });
+        }
+        const { phoneNumber } = req.body;
+        if (!phoneNumber) {
+            return res.status(400).json({ success: false, error: 'phoneNumber is required' });
+        }
+        const checkResult = await engine.checkNumber(phoneNumber);
+        res.json({
+            success: true,
+            connected: true,
+            ...checkResult
+        });
+    }
+    catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+// Check Multiple Phone Numbers for WhatsApp Accounts
+app.post('/check-numbers', verifySecret, async (req, res) => {
+    try {
+        const userId = getUserId(req);
+        let engine = sessionManager.getSession(userId, false);
+        // If requested user is not connected, fallback to ANY active connected session on the worker!
+        if (!engine || !engine.getStatus().isConnected || !engine.getClient()) {
+            const all = sessionManager.listSessions();
+            const connected = all.find(s => s.status.isConnected);
+            if (connected) {
+                engine = sessionManager.getSession(connected.userId, false);
+            }
+        }
+        if (!engine || !engine.getStatus().isConnected || !engine.getClient()) {
+            return res.status(200).json({
+                success: false,
+                connected: false,
+                error: `No WhatsApp session is currently connected. Please connect WhatsApp to verify live accounts.`
+            });
+        }
+        const { phoneNumbers } = req.body;
+        if (!Array.isArray(phoneNumbers) || phoneNumbers.length === 0) {
+            return res.status(400).json({ success: false, error: 'phoneNumbers array is required' });
+        }
+        const numbersToProcess = phoneNumbers.slice(0, 500);
+        const results = await engine.checkNumbers(numbersToProcess);
+        res.json({
+            success: true,
+            connected: true,
+            total: results.length,
+            activeCount: results.filter(r => r.exists).length,
+            inactiveCount: results.filter(r => !r.exists).length,
+            results
+        });
+    }
+    catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
 const activeCampaigns = new Map();
 function getOrCreateCampaign(userId) {
     let campaign = activeCampaigns.get(userId);

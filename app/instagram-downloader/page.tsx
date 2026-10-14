@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import { Header } from '@/components/Header';
 import { Sidebar } from '@/components/Sidebar';
 import { Footer } from '@/components/Footer';
@@ -328,6 +329,17 @@ export default function SocialMediaDownloaderPage() {
               <Play className="w-3 h-3 fill-current" />
               <span>YouTube</span>
             </button>
+          </div>
+
+          {/* Bulk Downloader Navigation Callout */}
+          <div className="pt-1 flex items-center justify-center">
+            <Link
+              href="/instagram-bulk-downloader"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-sky-50 dark:bg-sky-950/50 hover:bg-sky-100 dark:hover:bg-sky-900/50 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800 transition-all shadow-sm"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-sky-500" />
+              <span>Bulk HTML Downloader: Have an HTML file with multiple reels? Download all as ZIP →</span>
+            </Link>
           </div>
         </div>
 

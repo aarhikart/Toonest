@@ -516,6 +516,66 @@ class WhatsAppSessionEngine {
             userId: this.userId
         };
     }
+    /**
+     * Verifies whether a given phone number has a registered WhatsApp account
+     */
+    async checkNumber(phoneNumber) {
+        const digits = normalizePhoneNumber(phoneNumber);
+        if (!digits || digits.length < 7) {
+            return { phone: phoneNumber, exists: false, error: 'Invalid phone number format' };
+        }
+        if (!this.client || this.state !== 'CONNECTED') {
+            return {
+                phone: phoneNumber,
+                exists: false,
+                error: 'WhatsApp client is not connected'
+            };
+        }
+        let exists = false;
+        let jid;
+        try {
+            const numberId = await Promise.race([
+                this.client.getNumberId(digits),
+                new Promise((resolve) => setTimeout(() => resolve(null), 10000))
+            ]);
+            if (numberId?._serialized) {
+                exists = true;
+                jid = numberId._serialized;
+            }
+        }
+        catch (_) { }
+        if (!exists && !jid) {
+            try {
+                const isRegistered = await Promise.race([
+                    this.client.isRegisteredUser(digits + '@c.us'),
+                    new Promise((resolve) => setTimeout(() => resolve(false), 6000))
+                ]);
+                if (isRegistered === true) {
+                    exists = true;
+                    jid = `${digits}@c.us`;
+                }
+            }
+            catch (_) { }
+        }
+        return {
+            phone: phoneNumber,
+            exists,
+            jid
+        };
+    }
+    /**
+     * Bulk checks a list of phone numbers sequentially with a safe throttle
+     */
+    async checkNumbers(phoneNumbers) {
+        const results = [];
+        for (const phone of phoneNumbers) {
+            const res = await this.checkNumber(phone);
+            results.push(res);
+            // Small 100ms safety throttle to ensure WhatsApp server rate limits are respected
+            await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        return results;
+    }
     async destroy() {
         if (this.reconnectTimer) {
             clearTimeout(this.reconnectTimer);

@@ -92,6 +92,9 @@ export interface SessionUser {
   planEndDate?: string | null;
   daysRemaining: number | null;
   isExpired: boolean;
+  customDailyLimit?: number | null;
+  customResetHours?: number | null;
+  customLimitEnabled?: boolean;
 }
 
 export async function getSessionUser(req?: NextRequest): Promise<SessionUser | null> {
@@ -156,7 +159,10 @@ export async function getSessionUser(req?: NextRequest): Promise<SessionUser | n
       planStartDate: user.planStartDate ? user.planStartDate.toISOString() : null,
       planEndDate: user.planEndDate ? user.planEndDate.toISOString() : null,
       daysRemaining,
-      isExpired
+      isExpired,
+      customDailyLimit: user.customDailyLimit ?? null,
+      customResetHours: user.customResetHours ?? null,
+      customLimitEnabled: !!user.customLimitEnabled
     };
   } catch (_) {
     return null;

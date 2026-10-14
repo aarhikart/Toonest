@@ -16,7 +16,12 @@ import {
   AlertCircle,
   ArrowRightLeft,
   X,
-  ClipboardList
+  ClipboardList,
+  Receipt,
+  Loader2,
+  Download,
+  FileSpreadsheet,
+  FileText
 } from 'lucide-react';
 import { WebContact } from '@/lib/whatsapp-web/types';
 import { WhatsAppSenderEngine, POPULAR_COUNTRY_CODES } from '@/lib/whatsapp-web/sender';
@@ -26,16 +31,106 @@ interface WhatsAppContactListProps {
   onContactsChange: (contacts: WebContact[]) => void;
   messageTemplate: string;
   onOpenGuide?: () => void;
+  onOpenSendInvoice?: () => void;
 }
 
 export const WhatsAppContactList: React.FC<WhatsAppContactListProps> = ({
   contacts,
   onContactsChange,
   messageTemplate,
-  onOpenGuide
+  onOpenGuide,
+  onOpenSendInvoice
 }) => {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'single' | 'bulk' | 'csv' | 'sample'>('single');
+  const [activeTab, setActiveTab] = useState<'single' | 'bulk' | 'csv' | 'sample' | 'invoices'>('single');
+  const [invoiceContacts, setInvoiceContacts] = useState<{ customerName: string; customerPhone: string; createdAt?: string }[]>([]);
+  const [isLoadingInvoices, setIsLoadingInvoices] = useState(false);
+
+  const fetchInvoiceContacts = async () => {
+    setIsLoadingInvoices(true);
+    try {
+      const res = await fetch('/api/whatsapp/invoices');
+      const data = await res.json();
+      if (data.success && Array.isArray(data.invoices)) {
+        const map = new Map<string, { customerName: string; customerPhone: string; createdAt?: string }>();
+        for (const inv of data.invoices) {
+          const clean = (inv.customerPhone || '').replace(/\D/g, '');
+          if (clean && !map.has(clean)) {
+            map.set(clean, {
+              customerName: inv.customerName || `Customer (${clean})`,
+              customerPhone: inv.customerPhone,
+              createdAt: inv.createdAt
+            });
+          }
+        }
+        setInvoiceContacts(Array.from(map.values()));
+      }
+    } catch (err) {
+      console.error('Failed to load invoice contacts:', err);
+    } finally {
+      setIsLoadingInvoices(false);
+    }
+  };
+
+  const handleImportAllInvoices = () => {
+    if (invoiceContacts.length === 0) return;
+    const existingPhones = new Set(contacts.map(c => c.phoneNumber.replace(/\D/g, '')));
+    const toAdd: WebContact[] = [];
+
+    for (const inv of invoiceContacts) {
+      const cleanDigits = inv.customerPhone.replace(/\D/g, '');
+      if (!existingPhones.has(cleanDigits) && !existingPhones.has(cleanDigits.slice(-10))) {
+        existingPhones.add(cleanDigits);
+        const formattedPhone = inv.customerPhone.startsWith('+')
+          ? inv.customerPhone
+          : cleanDigits.length === 10
+          ? `+91${cleanDigits}`
+          : `+${cleanDigits}`;
+        toAdd.push({
+          id: `c_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          name: inv.customerName,
+          phoneNumber: formattedPhone,
+          status: 'PENDING'
+        });
+      }
+    }
+
+    if (toAdd.length > 0) {
+      const updated = [...contacts, ...toAdd];
+      onContactsChange(updated);
+      setFeedbackMsg(`✓ Successfully imported ${toAdd.length} customer${toAdd.length > 1 ? 's' : ''} from invoices into Customer List!`);
+    } else {
+      setFeedbackMsg('All invoice customers are already present in Customer List.');
+    }
+    setTimeout(() => setFeedbackMsg(null), 3500);
+  };
+
+  const handleImportSingleInvoice = (inv: { customerName: string; customerPhone: string }) => {
+    const cleanDigits = inv.customerPhone.replace(/\D/g, '');
+    const existing = contacts.some(c => {
+      const cDigits = c.phoneNumber.replace(/\D/g, '');
+      return cDigits === cleanDigits || cDigits.endsWith(cleanDigits.slice(-10));
+    });
+    if (existing) {
+      setFeedbackMsg(`"${inv.customerName}" is already in your Customer List.`);
+      setTimeout(() => setFeedbackMsg(null), 2500);
+      return;
+    }
+    const formattedPhone = inv.customerPhone.startsWith('+')
+      ? inv.customerPhone
+      : cleanDigits.length === 10
+      ? `+91${cleanDigits}`
+      : `+${cleanDigits}`;
+    const newContact: WebContact = {
+      id: `c_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      name: inv.customerName,
+      phoneNumber: formattedPhone,
+      status: 'PENDING'
+    };
+    onContactsChange([...contacts, newContact]);
+    setFeedbackMsg(`✓ Added "${inv.customerName}" to Customer List.`);
+    setTimeout(() => setFeedbackMsg(null), 2500);
+  };
   const [rawText, setRawText] = useState('');
   const [newName, setNewName] = useState('');
   const [newPhone, setNewPhone] = useState('');
@@ -85,19 +180,153 @@ export const WhatsAppContactList: React.FC<WhatsAppContactListProps> = ({
     onContactsChange(contacts.filter(c => c.id !== id));
   };
 
+  const handleDownloadSampleFile = async (format: 'xlsx' | 'txt') => {
+    if (format === 'xlsx') {
+      try {
+        const XLSX = await import('xlsx');
+        const data = [
+          { 'Name': 'Rohan Sharma', 'Phone Number': '+91 9876543210' },
+          { 'Name': 'Priya Patel', 'Phone Number': '+91 9123456789' },
+          { 'Name': 'David Miller', 'Phone Number': '+44 7911 123456' },
+          { 'Name': 'Sarah Connor', 'Phone Number': '+1 202 555 0143' },
+          { 'Name': 'Ahmed Al Mansoori', 'Phone Number': '+971 50 123 4567' },
+          { 'Name': 'Amit Verma', 'Phone Number': '9876501234' }
+        ];
+        const ws = XLSX.utils.json_to_sheet(data);
+        ws['!cols'] = [{ wch: 20 }, { wch: 20 }];
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Sample Contacts');
+        const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+        const blob = new Blob([excelBuffer], {
+          type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'sample_whatsapp_contacts.xlsx';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        console.error('Failed to export sample Excel:', err);
+        alert('Failed to generate Excel file. Please try downloading TXT instead.');
+      }
+    } else {
+      const content =
+        `Rohan Sharma, +91 9876543210\n` +
+        `Priya Patel, +91 9123456789\n` +
+        `David Miller, +44 7911 123456\n` +
+        `Sarah Connor, +1 202 555 0143\n` +
+        `Ahmed Al Mansoori, +971 50 123 4567\n` +
+        `Amit Verma, 9876501234\n`;
+      const blob = new Blob([content], { type: 'text/plain;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'sample_whatsapp_contacts.txt';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = evt => {
-      const text = evt.target?.result as string;
-      if (text) {
-        const parsed = WhatsAppSenderEngine.parseRawText(text, selectedDialCode);
-        onContactsChange([...contacts, ...parsed]);
-        setIsAddModalOpen(false);
-      }
-    };
-    reader.readAsText(file);
+
+    const fileName = file.name.toLowerCase();
+
+    if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+      const reader = new FileReader();
+      reader.onload = async evt => {
+        try {
+          const buffer = evt.target?.result;
+          if (!buffer) return;
+          const XLSX = await import('xlsx');
+          const wb = XLSX.read(buffer, { type: 'array' });
+          const firstSheetName = wb.SheetNames[0];
+          const ws = wb.Sheets[firstSheetName];
+          const rows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+
+          const imported: WebContact[] = [];
+          for (let r = 0; r < rows.length; r++) {
+            const row = rows[r];
+            if (!row || !Array.isArray(row) || row.length === 0) continue;
+
+            const col0 = String(row[0] || '').trim();
+            const col1 = String(row[1] || '').trim();
+
+            // Skip header row if present
+            if (
+              r === 0 &&
+              (col0.toLowerCase().includes('name') ||
+               col0.toLowerCase().includes('phone') ||
+               col1.toLowerCase().includes('phone') ||
+               col1.toLowerCase().includes('number'))
+            ) {
+              continue;
+            }
+
+            let name = '';
+            let phone = '';
+
+            const clean0 = col0.replace(/\D/g, '');
+            const clean1 = col1.replace(/\D/g, '');
+
+            if (clean1.length >= 7) {
+              name = col0 || `Contact ${contacts.length + imported.length + 1}`;
+              phone = col1;
+            } else if (clean0.length >= 7) {
+              name = col1 || `Contact ${contacts.length + imported.length + 1}`;
+              phone = col0;
+            } else if (col0) {
+              phone = col0;
+              name = `Contact ${contacts.length + imported.length + 1}`;
+            }
+
+            if (phone) {
+              const cleaned = WhatsAppSenderEngine.cleanPhone(phone, selectedDialCode);
+              if (cleaned.length >= 7) {
+                imported.push({
+                  id: `c_${Date.now()}_${Math.random().toString(36).substring(2, 6)}_${imported.length}`,
+                  name: name || `Contact ${contacts.length + imported.length + 1}`,
+                  phoneNumber: cleaned,
+                  status: 'PENDING'
+                });
+              }
+            }
+          }
+
+          if (imported.length > 0) {
+            onContactsChange([...contacts, ...imported]);
+            setIsAddModalOpen(false);
+          } else {
+            alert('No valid contacts found in the Excel file. Please ensure it has a Phone Number column.');
+          }
+        } catch (err) {
+          console.error('Error reading Excel file:', err);
+          alert('Could not parse Excel file. Please verify the format or upload a CSV/TXT file.');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      const reader = new FileReader();
+      reader.onload = evt => {
+        const text = evt.target?.result as string;
+        if (text) {
+          const parsed = WhatsAppSenderEngine.parseRawText(text, selectedDialCode);
+          if (parsed.length > 0) {
+            onContactsChange([...contacts, ...parsed]);
+            setIsAddModalOpen(false);
+          } else {
+            alert('No valid contacts found in the file.');
+          }
+        }
+      };
+      reader.readAsText(file);
+    }
     e.target.value = '';
   };
 
@@ -159,7 +388,7 @@ export const WhatsAppContactList: React.FC<WhatsAppContactListProps> = ({
             No Audience Contacts Yet
           </h4>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 max-w-sm mb-4">
-            Click &quot;Add Customer&quot; to enter individual numbers, bulk paste a phone list, or upload a CSV file.
+            Click &quot;Add Customer&quot; to enter individual numbers, bulk paste a phone list, upload a CSV file, or send an invoice.
           </p>
           <div className="flex flex-wrap items-center justify-center gap-2.5">
             <button
@@ -318,6 +547,21 @@ export const WhatsAppContactList: React.FC<WhatsAppContactListProps> = ({
               >
                 <ClipboardList className="w-3.5 h-3.5" />
                 <span>Paste Numbers</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('invoices');
+                  fetchInvoiceContacts();
+                }}
+                className={`flex-1 py-2 px-2 text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                  activeTab === 'invoices'
+                    ? 'bg-white dark:bg-zinc-800 text-[#5722AF] dark:text-purple-300 shadow-xs'
+                    : 'text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200'
+                }`}
+              >
+                <Receipt className="w-3.5 h-3.5 text-[#5722AF] dark:text-purple-400" />
+                <span>From Invoices</span>
               </button>
               <button
                 type="button"
@@ -487,12 +731,12 @@ export const WhatsAppContactList: React.FC<WhatsAppContactListProps> = ({
                 </div>
               )}
 
-              {/* Tab 3: CSV Upload */}
+              {/* Tab 3: File Upload */}
               {activeTab === 'csv' && (
                 <div className="space-y-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                      Upload Contacts File (.csv or .txt)
+                      Upload Contacts File (.xlsx, .csv, or .txt)
                     </label>
                     <div className="flex items-center gap-1.5 bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 self-start sm:self-auto">
                       <Globe className="w-3 h-3 text-zinc-500" />
@@ -516,24 +760,142 @@ export const WhatsAppContactList: React.FC<WhatsAppContactListProps> = ({
                       <Upload className="w-6 h-6" />
                     </div>
                     <span className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
-                      Click to choose CSV or TXT file
+                      Click to choose Excel (.xlsx), CSV, or TXT file
                     </span>
                     <span className="text-[11px] text-zinc-400 mt-1">
-                      Expected columns: Name, Phone Number
+                      Supported formats: .xlsx, .xls, .csv, .txt (Name, Phone Number)
                     </span>
                     <input
                       type="file"
-                      accept=".csv,.txt"
+                      accept=".xlsx,.xls,.csv,.txt"
                       onChange={handleFileUpload}
                       className="hidden"
                     />
                   </label>
 
+                  {/* Download Sample File Option */}
+                  <div className="p-3.5 bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800/80 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-white dark:bg-zinc-800 border border-purple-200 dark:border-purple-800 flex items-center justify-center text-[#5722AF] dark:text-purple-300 shrink-0">
+                        <Download className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <p className="font-bold text-zinc-900 dark:text-zinc-100">
+                          Download Sample File
+                        </p>
+                        <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                          Need a formatted template? Download a ready-to-use sample file:
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadSampleFile('xlsx')}
+                        className="px-3 py-1.5 rounded-xl bg-white dark:bg-zinc-800 border border-emerald-300 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition cursor-pointer"
+                        title="Download sample template in Excel (.xlsx) format"
+                      >
+                        <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                        <span>Excel (.xlsx)</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadSampleFile('txt')}
+                        className="px-3 py-1.5 rounded-xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition cursor-pointer"
+                        title="Download sample template in TXT format"
+                      >
+                        <FileText className="w-3.5 h-3.5 text-zinc-500" />
+                        <span>TXT</span>
+                      </button>
+                    </div>
+                  </div>
+
                   <div className="p-3 bg-zinc-50 dark:bg-zinc-800/50 rounded-xl border border-zinc-200 dark:border-zinc-700 text-[11px] text-zinc-500 space-y-1">
                     <p className="font-semibold text-zinc-700 dark:text-zinc-300">File format guide:</p>
-                    <p>• Plain text with lines like: <code>Rahul, 9876543210</code></p>
-                    <p>• Or CSV with columns: <code>Name</code> and <code>Phone</code></p>
+                    <p>• <strong>Excel (.xlsx)</strong>: Columns with <code>Name</code> and <code>Phone Number</code>.</p>
+                    <p>• <strong>Plain text (.txt) / CSV</strong>: Lines formatted like <code>Rohan Sharma, 9876543210</code></p>
                   </div>
+                </div>
+              )}
+
+              {/* Tab 5: Import from Invoices */}
+              {activeTab === 'invoices' && (
+                <div className="space-y-4">
+                  <div className="p-3.5 rounded-2xl bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800/80 flex items-center justify-between gap-3">
+                    <div>
+                      <h4 className="text-xs font-bold text-zinc-900 dark:text-white flex items-center gap-1.5">
+                        <Receipt className="w-4 h-4 text-[#5722AF] dark:text-purple-400" />
+                        <span>Import from Saved Invoices</span>
+                      </h4>
+                      <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">
+                        {invoiceContacts.length} customer contact{invoiceContacts.length === 1 ? '' : 's'} found in past invoices
+                      </p>
+                    </div>
+
+                    {invoiceContacts.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleImportAllInvoices}
+                        className="px-3.5 py-1.5 rounded-xl bg-[#5722AF] hover:bg-[#481c93] text-white text-xs font-bold transition shadow-sm cursor-pointer shrink-0"
+                      >
+                        Import All to List
+                      </button>
+                    )}
+                  </div>
+
+                  {isLoadingInvoices ? (
+                    <div className="py-8 text-center space-y-2">
+                      <Loader2 className="w-6 h-6 animate-spin text-[#5722AF] mx-auto" />
+                      <p className="text-xs text-zinc-500">Loading invoice contacts...</p>
+                    </div>
+                  ) : invoiceContacts.length === 0 ? (
+                    <div className="py-8 text-center space-y-2 border-2 border-dashed border-zinc-200 dark:border-zinc-800 rounded-2xl">
+                      <Receipt className="w-8 h-8 text-zinc-300 dark:text-zinc-600 mx-auto" />
+                      <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">No Invoice Contacts Found</p>
+                      <p className="text-[11px] text-zinc-500">
+                        Once you create and save invoices, your customer details will appear here for easy 1-click import into Customer List.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="max-h-60 overflow-y-auto divide-y divide-zinc-100 dark:divide-zinc-800 border border-zinc-200 dark:border-zinc-800 rounded-2xl">
+                      {invoiceContacts.map((inv, idx) => {
+                        const cleanDigits = inv.customerPhone.replace(/\D/g, '');
+                        const isAlreadyInList = contacts.some(
+                          c => c.phoneNumber.replace(/\D/g, '') === cleanDigits || c.phoneNumber.replace(/\D/g, '').endsWith(cleanDigits.slice(-10))
+                        );
+                        return (
+                          <div
+                            key={idx}
+                            className="p-3 flex items-center justify-between gap-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
+                          >
+                            <div className="min-w-0">
+                              <p className="text-xs font-semibold text-zinc-900 dark:text-white truncate">
+                                {inv.customerName}
+                              </p>
+                              <p className="text-[11px] text-zinc-500 dark:text-zinc-400 font-mono">
+                                {inv.customerPhone}
+                              </p>
+                            </div>
+
+                            {isAlreadyInList ? (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 flex items-center gap-1 shrink-0">
+                                <CheckCircle2 className="w-3 h-3" />
+                                <span>In List</span>
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleImportSingleInvoice(inv)}
+                                className="px-2.5 py-1 rounded-lg border border-purple-300 dark:border-purple-700 bg-purple-50 dark:bg-purple-950/40 text-[#5722AF] dark:text-purple-300 text-xs font-semibold hover:bg-purple-100 transition cursor-pointer shrink-0"
+                              >
+                                + Add to List
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
 

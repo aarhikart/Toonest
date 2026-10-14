@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import Script from 'next/script';
 import './globals.css';
 
 export const viewport: Viewport = {
@@ -30,19 +31,21 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <script
+        <Script
+          id="theme-loader"
+          strategy="beforeInteractive"
           dangerouslySetInnerHTML={{
             __html: `
               try {
                 const storedTheme = localStorage.getItem('toolnest_theme');
-                const isWhatsAppPage = window.location.pathname.startsWith('/whatsapp-marketing') || window.location.pathname === '/';
+                const isDefaultDarkPage = window.location.pathname.startsWith('/whatsapp-marketing') || window.location.pathname.startsWith('/whatsapp-number-checker') || window.location.pathname.startsWith('/video-cutter') || window.location.pathname === '/';
                 if (storedTheme === 'light') {
                   document.documentElement.classList.remove('dark');
                 } else if (storedTheme === 'dark') {
                   document.documentElement.classList.add('dark');
                 } else {
-                  // Default is dark on /whatsapp-marketing, light on other pages
-                  if (isWhatsAppPage) {
+                  // Default is dark on /whatsapp-marketing, /video-cutter, etc., light on other pages
+                  if (isDefaultDarkPage) {
                     document.documentElement.classList.add('dark');
                   } else {
                     document.documentElement.classList.remove('dark');

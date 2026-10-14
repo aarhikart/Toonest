@@ -19,8 +19,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Server-side daily message quota verification across devices
-    if (userId && userId !== 'default') {
+    // Server-side daily message quota verification across devices (Invoices are exempt from quota limits)
+    const isInvoice = body.isInvoice === true || req.headers.get('x-is-invoice') === 'true';
+
+    if (!isInvoice && userId && userId !== 'default') {
       try {
         const { connectToDatabase } = await import('@/lib/mongodb/client');
         const { User, UserQuota, SystemSetting } = await import('@/lib/mongodb/models');
@@ -38,7 +40,9 @@ export async function POST(req: NextRequest) {
             userDoc?.role,
             userDoc?.subscriptionType,
             userDoc?.planType,
-            planLimits
+            planLimits,
+            userDoc?.customDailyLimit,
+            userDoc?.customLimitEnabled
           );
 
           const quotaDoc = await UserQuota.findOne({ username: userId });
@@ -125,7 +129,7 @@ export async function POST(req: NextRequest) {
       {
         success: false,
         error: isOffline
-          ? `WhatsApp worker service is unreachable at ${serviceUrl}.`
+          ? 'The server is down. Please try after some time.'
           : (err.message || 'Unknown network error communicating with WhatsApp worker.'),
         isWorkerOffline: isOffline
       },

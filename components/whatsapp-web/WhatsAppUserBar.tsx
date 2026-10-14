@@ -19,7 +19,8 @@ import {
   ChevronRight,
   HelpCircle,
   Shield,
-  FileText
+  FileText,
+  Receipt
 } from 'lucide-react';
 import { PlanLimitsConfig, WhatsAppLimitManager, CalculatedUsage } from '@/lib/whatsapp-web/limit-manager';
 
@@ -35,6 +36,9 @@ interface WhatsAppUserBarProps {
     planType?: '1_month' | '3_months' | '6_months' | null;
     daysRemaining?: number | null;
     isExpired?: boolean;
+    customDailyLimit?: number | null;
+    customResetHours?: number | null;
+    customLimitEnabled?: boolean;
   };
   onLogout: () => void;
   onOpenAdminCenter?: () => void;
@@ -43,6 +47,7 @@ interface WhatsAppUserBarProps {
   planLimits?: PlanLimitsConfig;
   isOpen?: boolean;
   onToggleSidebar?: () => void;
+  onOpenSendInvoice?: () => void;
 }
 
 export const WhatsAppUserBar: React.FC<WhatsAppUserBarProps> = ({
@@ -53,7 +58,8 @@ export const WhatsAppUserBar: React.FC<WhatsAppUserBarProps> = ({
   onOpenPlansModal,
   planLimits,
   isOpen: controlledIsOpen,
-  onToggleSidebar
+  onToggleSidebar,
+  onOpenSendInvoice
 }) => {
   const [internalIsOpen, setInternalIsOpen] = useState(false);
   const isSidebarOpen = controlledIsOpen !== undefined ? controlledIsOpen : internalIsOpen;
@@ -76,11 +82,19 @@ export const WhatsAppUserBar: React.FC<WhatsAppUserBarProps> = ({
     user.role,
     user.subscriptionType,
     user.planType,
-    planLimits
+    planLimits,
+    user.customDailyLimit,
+    user.customLimitEnabled
+  );
+
+  const effectiveResetHours = WhatsAppLimitManager.getResetHours(
+    user.customResetHours,
+    user.customLimitEnabled,
+    planLimits?.resetHours
   );
 
   const [usage, setUsage] = useState<CalculatedUsage>(() =>
-    WhatsAppLimitManager.getUsage(user.username, userLimit, planLimits?.resetHours)
+    WhatsAppLimitManager.getUsage(user.username, userLimit, effectiveResetHours)
   );
 
   // Close on Escape key
@@ -111,7 +125,7 @@ export const WhatsAppUserBar: React.FC<WhatsAppUserBarProps> = ({
     let isMounted = true;
     const refresh = async () => {
       // 1. Instant local render
-      const local = WhatsAppLimitManager.getUsage(user.username, userLimit, planLimits?.resetHours);
+      const local = WhatsAppLimitManager.getUsage(user.username, userLimit, effectiveResetHours);
       if (isMounted) setUsage(local);
 
       // 2. Fetch latest shared quota from MongoDB across devices
@@ -120,7 +134,7 @@ export const WhatsAppUserBar: React.FC<WhatsAppUserBarProps> = ({
           const dbUsage = await WhatsAppLimitManager.fetchUsageFromDb(
             user.username,
             userLimit,
-            planLimits?.resetHours
+            effectiveResetHours
           );
           if (isMounted) setUsage(dbUsage);
         } catch (_) {}
@@ -133,7 +147,7 @@ export const WhatsAppUserBar: React.FC<WhatsAppUserBarProps> = ({
       isMounted = false;
       clearInterval(timer);
     };
-  }, [user.username, userLimit, planLimits?.resetHours]);
+  }, [user.username, userLimit, effectiveResetHours]);
 
   const fetchUserCampaigns = async () => {
     setIsLoadingCampaigns(true);
@@ -180,8 +194,15 @@ export const WhatsAppUserBar: React.FC<WhatsAppUserBarProps> = ({
       aria-modal="true"
       aria-label="User Options & Profile Sidebar"
     >
-      {/* Left Panel: Exactly 80% screen width (w-[80vw]), slides from left to right */}
-      <div className="relative w-[80vw] max-w-sm sm:max-w-md h-full bg-white dark:bg-[#0f121a] border-r border-zinc-200 dark:border-zinc-800 shadow-2xl flex flex-col z-20 animate-in slide-in-from-left duration-200 ease-out overflow-hidden">
+      {/* Background Backdrop Overlay for outside click dismiss */}
+      <div
+        onClick={() => setIsSidebarOpen(false)}
+        className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity animate-in fade-in duration-200 cursor-pointer z-10"
+        aria-label="Close sidebar"
+      />
+
+      {/* Sidebar Panel: 100% width on phone screens (w-full max-w-full), slide drawer on tablet/desktop (sm:w-[80vw] sm:max-w-md) */}
+      <div className="relative w-full max-w-full sm:w-[80vw] sm:max-w-md h-full bg-white dark:bg-[#0f121a] border-r border-zinc-200 dark:border-zinc-800 shadow-2xl flex flex-col z-20 animate-in slide-in-from-left duration-200 ease-out overflow-hidden shrink-0">
         {/* Sidebar Header */}
         <div className="p-4 sm:p-5 border-b border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between shrink-0">
           {activeTab === 'campaigns' ? (
@@ -299,7 +320,9 @@ export const WhatsAppUserBar: React.FC<WhatsAppUserBarProps> = ({
                   {user.role !== 'admin' && (
                     <span
                       className={`px-2.5 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1.5 border ${
-                        usage.isLimitReached
+                        user.customLimitEnabled
+                          ? 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800'
+                          : usage.isLimitReached
                           ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-900'
                           : usage.remaining <= 10
                           ? 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-900'
@@ -307,15 +330,15 @@ export const WhatsAppUserBar: React.FC<WhatsAppUserBarProps> = ({
                       }`}
                       title={
                         usage.isResetTimerActive
-                          ? `Limit reached. Resets on ${usage.resetTimeFormatted} (in ${usage.timeRemainingStr})`
-                          : `${usage.remaining}/${userLimit} messages remaining`
+                          ? `${user.customLimitEnabled ? 'Custom limit' : 'Limit'} reached. Resets on ${usage.resetTimeFormatted} (in ${usage.timeRemainingStr})`
+                          : `${usage.remaining}/${userLimit} messages remaining${user.customLimitEnabled ? ' (Custom limit configured)' : ''}`
                       }
                     >
                       <span>✉️</span>
                       <span>
                         {usage.isLimitReached && usage.isResetTimerActive
                           ? `Limit Reached (${usage.timeRemainingStr})`
-                          : `${usage.remaining}/${userLimit} msgs left`}
+                          : `${usage.remaining}/${userLimit} msgs left${user.customLimitEnabled ? ' (Custom)' : ''}`}
                       </span>
                     </span>
                   )}
@@ -457,6 +480,33 @@ export const WhatsAppUserBar: React.FC<WhatsAppUserBarProps> = ({
                         </div>
                         <p className="text-[11px] text-zinc-400 dark:text-zinc-500 truncate mt-0.5">
                           Approve client trials, plans & quota limits
+                        </p>
+                      </div>
+                    </button>
+                  )}
+
+                  {/* Send Invoice */}
+                  {onOpenSendInvoice && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsSidebarOpen(false);
+                        onOpenSendInvoice();
+                      }}
+                      className="w-full p-2.5 rounded-xl flex items-center gap-3 transition-all hover:bg-zinc-100/80 dark:hover:bg-[#161a26] text-zinc-700 dark:text-zinc-300 group cursor-pointer text-left"
+                    >
+                      <div className="p-2 rounded-lg shrink-0 bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 group-hover:bg-emerald-600 group-hover:text-white transition-colors">
+                        <Receipt className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-xs font-bold truncate text-zinc-900 dark:text-white">
+                            Send Invoice
+                          </span>
+                          <ChevronRight className="w-3.5 h-3.5 text-zinc-400 group-hover:translate-x-0.5 transition-transform" />
+                        </div>
+                        <p className="text-[11px] text-zinc-400 dark:text-zinc-500 truncate mt-0.5">
+                          Create & send customer billing messages
                         </p>
                       </div>
                     </button>
@@ -630,11 +680,11 @@ export const WhatsAppUserBar: React.FC<WhatsAppUserBarProps> = ({
         </div>
       </div>
 
-      {/* Right Area: Exactly 20% transparent overlay (w-[20vw] / flex-1) that dismisses the sidebar on tap */}
+      {/* Right Area: Dismissal area on tablet/desktop */}
       <div
         onClick={() => setIsSidebarOpen(false)}
-        className="flex-1 bg-black/50 backdrop-blur-xs transition-opacity animate-in fade-in duration-200 cursor-pointer"
-        title="Click transparent background to close"
+        className="hidden sm:block flex-1 cursor-pointer z-20"
+        title="Click background to close"
         aria-label="Close sidebar"
       />
     </div>

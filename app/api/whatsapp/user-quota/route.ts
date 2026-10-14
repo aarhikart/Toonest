@@ -46,12 +46,19 @@ export async function GET(req: NextRequest) {
       userDoc?.role,
       userDoc?.subscriptionType,
       userDoc?.planType,
-      planLimits
+      planLimits,
+      userDoc?.customDailyLimit,
+      userDoc?.customLimitEnabled
     );
     const paramLimit = Number(searchParams.get('limit'));
     const userLimit = paramLimit > 0 ? paramLimit : resolvedLimit;
 
-    const resetHours = Number(searchParams.get('resetHours')) || planLimits.resetHours;
+    const defaultResetHours = WhatsAppLimitManager.getResetHours(
+      userDoc?.customResetHours,
+      userDoc?.customLimitEnabled,
+      planLimits.resetHours
+    );
+    const resetHours = Number(searchParams.get('resetHours')) || defaultResetHours;
     const windowMs = Math.max(1, resetHours) * 3600 * 1000;
     const now = Date.now();
 

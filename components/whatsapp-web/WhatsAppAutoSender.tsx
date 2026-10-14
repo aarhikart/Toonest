@@ -38,8 +38,14 @@ interface WhatsAppAutoSenderProps {
     subscriptionType?: string;
     planType?: string | null;
     username?: string;
+    isExpired?: boolean;
+    daysRemaining?: number | null;
+    customDailyLimit?: number | null;
+    customResetHours?: number | null;
+    customLimitEnabled?: boolean;
     [key: string]: any;
   } | null;
+  onOpenRenewalModal?: (plan?: '1_month' | '3_months' | '6_months') => void;
 }
 
 interface LogItem {
@@ -64,7 +70,8 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
   onOpenGuide,
   userId,
   planLimits,
-  currentUser
+  currentUser,
+  onOpenRenewalModal
 }) => {
   const effectiveUserId = (userId && userId.trim() !== 'default' ? userId.trim() : WhatsAppSessionManager.getUserId()).toLowerCase();
   const [isRunning, setIsRunning] = useState(false);
@@ -73,22 +80,36 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
   const [logs, setLogs] = useState<LogItem[]>([]);
   const [dispatchMode, setDispatchMode] = useState<'WORKER' | 'BROWSER_TABS'>('WORKER');
 
+  const isPlanExpired = !!currentUser && currentUser.role !== 'admin' && (
+    currentUser.isExpired === true ||
+    (currentUser.daysRemaining !== undefined && currentUser.daysRemaining !== null && currentUser.daysRemaining <= 0) ||
+    currentUser.subscriptionType === 'none'
+  );
+
   const userLimit = WhatsAppLimitManager.getPlanLimit(
     currentUser?.role,
     currentUser?.subscriptionType,
     currentUser?.planType,
-    planLimits
+    planLimits,
+    currentUser?.customDailyLimit,
+    currentUser?.customLimitEnabled
+  );
+
+  const effectiveResetHours = WhatsAppLimitManager.getResetHours(
+    currentUser?.customResetHours,
+    currentUser?.customLimitEnabled,
+    planLimits?.resetHours
   );
 
   const [usage, setUsage] = useState<CalculatedUsage>(() =>
-    WhatsAppLimitManager.getUsage(effectiveUserId, userLimit, planLimits?.resetHours)
+    WhatsAppLimitManager.getUsage(effectiveUserId, userLimit, effectiveResetHours)
   );
 
   // Keep usage and countdown timer refreshed
   React.useEffect(() => {
     let isMounted = true;
     const refreshUsage = async () => {
-      const current = WhatsAppLimitManager.getUsage(effectiveUserId, userLimit, planLimits?.resetHours);
+      const current = WhatsAppLimitManager.getUsage(effectiveUserId, userLimit, effectiveResetHours);
       if (isMounted) setUsage(current);
 
       if (effectiveUserId && effectiveUserId !== 'default') {
@@ -96,7 +117,7 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
           const dbUsage = await WhatsAppLimitManager.fetchUsageFromDb(
             effectiveUserId,
             userLimit,
-            planLimits?.resetHours
+            effectiveResetHours
           );
           if (isMounted) setUsage(dbUsage);
         } catch (_) {}
@@ -109,7 +130,7 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
       isMounted = false;
       clearInterval(interval);
     };
-  }, [effectiveUserId, userLimit, planLimits?.resetHours]);
+  }, [effectiveUserId, userLimit, effectiveResetHours]);
 
   const isRunningRef = useRef(false);
   const isPausedRef = useRef(false);
@@ -120,6 +141,11 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
   const progressPct = total > 0 ? Math.round((sentCount / total) * 100) : 0;
 
   const startCampaign = async () => {
+    if (isPlanExpired) {
+      alert('Your plan has expired!\n\nPlease renew your plan to start sending WhatsApp marketing campaigns.');
+      if (onOpenRenewalModal) onOpenRenewalModal();
+      return;
+    }
     if (dispatchMode === 'WORKER' && !session.connected) {
       alert('Please connect WhatsApp Web first via QR Code or Pairing Code in Step 1, or select "Browser Direct Mode".');
       return;
@@ -134,23 +160,23 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
     }
 
     // Check message limit quota before starting (check latest from MongoDB)
-    let currentQuota = WhatsAppLimitManager.getUsage(effectiveUserId, userLimit, planLimits?.resetHours);
+    let currentQuota = WhatsAppLimitManager.getUsage(effectiveUserId, userLimit, effectiveResetHours);
     if (effectiveUserId && effectiveUserId !== 'default') {
       try {
-        currentQuota = await WhatsAppLimitManager.fetchUsageFromDb(effectiveUserId, userLimit, planLimits?.resetHours);
+        currentQuota = await WhatsAppLimitManager.fetchUsageFromDb(effectiveUserId, userLimit, effectiveResetHours);
       } catch (_) {}
     }
     setUsage(currentQuota);
 
     if (currentQuota.isLimitReached && currentQuota.isResetTimerActive) {
       alert(
-        `Message quota limit of ${userLimit} reached for this ${planLimits?.resetHours || 24}-hour window.\n\nYou can send messages again on ${currentQuota.resetTimeFormatted} (in ${currentQuota.timeRemainingStr}).`
+        `Message quota limit of ${userLimit} reached for this ${effectiveResetHours}-hour window.\n\nYou can send messages again on ${currentQuota.resetTimeFormatted} (in ${currentQuota.timeRemainingStr}).`
       );
       return;
     }
 
     // Anchor campaign start time when sending begins
-    WhatsAppLimitManager.startCampaignTracking(effectiveUserId, planLimits?.resetHours);
+    WhatsAppLimitManager.startCampaignTracking(effectiveUserId, effectiveResetHours);
 
     // Deduplication: mark contacts as SENT if already delivered in history
     let currentList = contacts.map(c => {
@@ -195,13 +221,13 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
       }
 
       // Check quota before sending this contact
-      const liveQuota = WhatsAppLimitManager.getUsage(effectiveUserId, userLimit, planLimits?.resetHours);
+      const liveQuota = WhatsAppLimitManager.getUsage(effectiveUserId, userLimit, effectiveResetHours);
       if (liveQuota.isLimitReached && liveQuota.isResetTimerActive) {
         setUsage(liveQuota);
         setIsRunning(false);
         isRunningRef.current = false;
         alert(
-          `Message limit of ${userLimit} reached for this ${planLimits?.resetHours || 24}-hour window!\n\nCampaign paused safely. Delivered contacts are saved so duplicate messages will not be sent.\n\nYou can send the remaining contacts on ${liveQuota.resetTimeFormatted} (in ${liveQuota.timeRemainingStr}).`
+          `Message limit of ${userLimit} reached for this ${effectiveResetHours}-hour window!\n\nCampaign paused safely. Delivered contacts are saved so duplicate messages will not be sent.\n\nYou can send the remaining contacts on ${liveQuota.resetTimeFormatted} (in ${liveQuota.timeRemainingStr}).`
         );
         break;
       }
@@ -339,7 +365,7 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
           effectiveUserId,
           contact.phoneNumber,
           userLimit,
-          planLimits?.resetHours
+          effectiveResetHours
         );
         setUsage(updatedUsage);
       }
@@ -446,8 +472,15 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
                 <span>Reset</span>
               </button>
               <button
+                type="button"
                 onClick={startCampaign}
-                className="px-4 py-1.5 sm:px-5 sm:py-2 bg-[#5722AF] hover:bg-[#471a93] text-white font-semibold rounded-xl text-xs flex items-center gap-1.5 shadow-md transition cursor-pointer"
+                disabled={isPlanExpired}
+                title={isPlanExpired ? "Your plan has expired. Please renew your plan to start sending." : "Start sending messages to customer list"}
+                className={`px-4 py-1.5 sm:px-5 sm:py-2 font-semibold rounded-xl text-xs flex items-center gap-1.5 transition ${
+                  isPlanExpired
+                    ? 'bg-zinc-200 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500 cursor-not-allowed shadow-none border border-zinc-300/50 dark:border-zinc-700/50'
+                    : 'bg-[#5722AF] hover:bg-[#471a93] text-white shadow-md cursor-pointer'
+                }`}
               >
                 <Play className="w-3.5 h-3.5" />
                 <span>Start Sending</span>
@@ -474,10 +507,38 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
         </div>
       </div>
 
+      {/* Plan Expired Alert Message */}
+      {isPlanExpired && (
+        <div className="p-4 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-rose-100 dark:bg-rose-900/60 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+              <AlertCircle className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="font-bold text-rose-900 dark:text-rose-200 text-sm">
+                Your plan has expired
+              </h4>
+              <p className="text-rose-700 dark:text-rose-300 text-xs mt-0.5">
+                Your subscription has ended. The <strong>Start Sending</strong> button is disabled until your plan is renewed.
+              </p>
+            </div>
+          </div>
+          {onOpenRenewalModal && (
+            <button
+              type="button"
+              onClick={() => onOpenRenewalModal()}
+              className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-xs shadow-sm transition shrink-0 cursor-pointer"
+            >
+              Renew Plan Now
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Message Quota & Reset Window Telemetry Card */}
       <div className="p-4 bg-purple-50/70 dark:bg-purple-950/25 rounded-2xl border border-purple-200/80 dark:border-purple-800/60 space-y-2.5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs">
-          <div className="flex items-center gap-1.5 font-bold text-zinc-900 dark:text-white">
+          <div className="flex items-center gap-1.5 font-bold text-zinc-900 dark:text-white flex-wrap">
             <Zap className="w-4 h-4 text-[#5722AF] dark:text-purple-400" />
             <span>Message Quota:</span>
             {userLimit >= 999999 ? (
@@ -485,6 +546,11 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
             ) : (
               <span className={usage.isLimitReached ? 'text-rose-600 font-extrabold' : 'text-[#5722AF] dark:text-purple-300 font-extrabold'}>
                 {usage.remaining} / {userLimit} messages remaining
+              </span>
+            )}
+            {currentUser?.customLimitEnabled && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-100 text-purple-700 dark:bg-purple-950/80 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                Custom Limit
               </span>
             )}
           </div>
@@ -498,7 +564,7 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
                 </span>
               ) : (
                 <span className="text-zinc-500 dark:text-zinc-400">
-                  Reset Window: {planLimits?.resetHours || 24}h (Timer starts once limit is fully used)
+                  Reset Window: {effectiveResetHours}h (Timer starts once limit is fully used)
                 </span>
               )}
             </div>
@@ -525,7 +591,7 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
                 Limit reached! Next batch can be sent on {usage.resetTimeFormatted} (in {usage.timeRemainingStr}).
               </span>
             ) : (
-              <span>Configured window: {planLimits?.resetHours || 24} hours • Deduplication active</span>
+              <span>Configured window: {effectiveResetHours} hours {currentUser?.customLimitEnabled ? '(Individual Custom Limit)' : ''} • Deduplication active</span>
             )}
           </span>
           <span className="text-zinc-600 dark:text-zinc-300 font-medium">

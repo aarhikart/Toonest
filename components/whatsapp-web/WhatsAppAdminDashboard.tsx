@@ -42,7 +42,7 @@ import {
 import { WhatsAppWebConnect } from './WhatsAppWebConnect';
 import { WhatsAppSessionManager } from '@/lib/whatsapp-web/session';
 import { WhatsAppWebSession } from '@/lib/whatsapp-web/types';
-import { PlanLimitsConfig, DEFAULT_PLAN_LIMITS } from '@/lib/whatsapp-web/limit-manager';
+import { PlanLimitsConfig, DEFAULT_PLAN_LIMITS, WhatsAppLimitManager } from '@/lib/whatsapp-web/limit-manager';
 
 interface ManagedUser {
   id: string;
@@ -56,6 +56,9 @@ interface ManagedUser {
   planEndDate?: string | null;
   daysRemaining?: number | null;
   isExpired?: boolean;
+  customDailyLimit?: number | null;
+  customResetHours?: number | null;
+  customLimitEnabled?: boolean;
   createdAt: string;
   campaignsCount: number;
   successfulMessages: number;
@@ -201,6 +204,77 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
   const [resetPasswordValue, setResetPasswordValue] = useState('');
   const [resetMessage, setResetMessage] = useState('');
   const [isResetting, setIsResetting] = useState(false);
+
+  // Individual Custom Limit Modal State
+  const [customLimitTargetUser, setCustomLimitTargetUser] = useState<ManagedUser | null>(null);
+  const [customLimitEnabledInput, setCustomLimitEnabledInput] = useState<boolean>(false);
+  const [customDailyLimitInput, setCustomDailyLimitInput] = useState<number>(10);
+  const [customResetHoursInput, setCustomResetHoursInput] = useState<number>(24);
+  const [isSavingCustomLimit, setIsSavingCustomLimit] = useState<boolean>(false);
+  const [customLimitMsg, setCustomLimitMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const handleOpenCustomLimitModal = (u: ManagedUser) => {
+    setCustomLimitTargetUser(u);
+    const hasCustom = Boolean(u.customLimitEnabled && u.customDailyLimit);
+    setCustomLimitEnabledInput(hasCustom);
+    setCustomDailyLimitInput(u.customDailyLimit && u.customDailyLimit > 0 ? u.customDailyLimit : 10);
+    setCustomResetHoursInput(u.customResetHours && u.customResetHours > 0 ? u.customResetHours : (planLimits.resetHours || 24));
+    setCustomLimitMsg(null);
+  };
+
+  const handleSaveCustomLimit = async (enabledOverride?: boolean) => {
+    if (!customLimitTargetUser) return;
+    const enable = enabledOverride !== undefined ? enabledOverride : customLimitEnabledInput;
+    setIsSavingCustomLimit(true);
+    setCustomLimitMsg(null);
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: customLimitTargetUser.id,
+          customLimitEnabled: enable,
+          customDailyLimit: enable ? Number(customDailyLimitInput) : null,
+          customResetHours: enable ? Number(customResetHoursInput) : null
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCustomLimitMsg({
+          type: 'success',
+          text: enable
+            ? `Custom limit of ${customDailyLimitInput} msgs / ${customResetHoursInput}h saved for @${customLimitTargetUser.username}.`
+            : `Custom limit removed. @${customLimitTargetUser.username} reverted to global plan limits.`
+        });
+        setUsers(prev => prev.map(u => {
+          if (u.id === customLimitTargetUser.id) {
+            return {
+              ...u,
+              customLimitEnabled: enable,
+              customDailyLimit: enable ? Number(customDailyLimitInput) : null,
+              customResetHours: enable ? Number(customResetHoursInput) : null
+            };
+          }
+          return u;
+        }));
+        setTimeout(() => {
+          setCustomLimitTargetUser(null);
+        }, 1100);
+      } else {
+        setCustomLimitMsg({
+          type: 'error',
+          text: data.error || 'Failed to update custom limits.'
+        });
+      }
+    } catch (err: any) {
+      setCustomLimitMsg({
+        type: 'error',
+        text: err.message || 'Network error updating custom limits.'
+      });
+    } finally {
+      setIsSavingCustomLimit(false);
+    }
+  };
 
   const fetchGatewayInfo = async () => {
     try {
@@ -1334,6 +1408,7 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
                     <th className="px-4 py-3 text-center">Campaigns</th>
                     <th className="px-4 py-3 text-center">Sent / Failed</th>
                     <th className="px-4 py-3 text-center">Subscription</th>
+                    <th className="px-4 py-3 text-center">Daily Limit</th>
                     <th className="px-4 py-3 text-center">Status</th>
                     <th className="px-4 py-3 text-right">Actions</th>
                   </tr>
@@ -1395,6 +1470,28 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
                           <span className="text-zinc-400 text-xs font-medium">None</span>
                         )}
                       </td>
+                      <td className="px-4 py-3.5 text-center whitespace-nowrap">
+                        {u.customLimitEnabled && u.customDailyLimit ? (
+                          <div className="inline-flex flex-col items-center">
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-[#5722AF]/15 text-[#5722AF] dark:text-purple-300 border border-[#5722AF]/30">
+                              <Zap className="w-3 h-3 text-amber-500" />
+                              <span>{u.customDailyLimit} msgs</span>
+                            </span>
+                            <span className="text-[10px] text-purple-700 dark:text-purple-300 font-semibold mt-0.5">
+                              {u.customResetHours || 24}h (Custom)
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="inline-flex flex-col items-center">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700">
+                              {WhatsAppLimitManager.getPlanLimit('user', u.subscriptionType, u.planType, planLimits)} msgs
+                            </span>
+                            <span className="text-[10px] text-zinc-400 mt-0.5">
+                              {planLimits.resetHours || 24}h (Global)
+                            </span>
+                          </div>
+                        )}
+                      </td>
                       <td className="px-4 py-3.5 text-center">
                         <button
                           onClick={() => handleToggleStatus(u)}
@@ -1409,6 +1506,21 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
                         </button>
                       </td>
                       <td className="px-4 py-3.5 text-right whitespace-nowrap space-x-1">
+                        <button
+                          onClick={() => handleOpenCustomLimitModal(u)}
+                          title={
+                            u.customLimitEnabled && u.customDailyLimit
+                              ? `Custom Limit Active: ${u.customDailyLimit} msgs / ${u.customResetHours || 24}h. Click to edit or remove.`
+                              : `Configure individual daily limit for @${u.username}`
+                          }
+                          className={`p-1.5 rounded-lg transition cursor-pointer ${
+                            u.customLimitEnabled && u.customDailyLimit
+                              ? 'text-[#5722AF] dark:text-purple-300 bg-[#5722AF]/15 border border-[#5722AF]/30 hover:bg-[#5722AF]/25'
+                              : 'text-zinc-500 hover:text-[#5722AF] dark:hover:text-purple-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                          }`}
+                        >
+                          <Sliders className="w-4 h-4" />
+                        </button>
                         <button
                           onClick={() => {
                             setPlanActivationUser(u);
@@ -2525,6 +2637,258 @@ export const WhatsAppAdminDashboard: React.FC<WhatsAppAdminDashboardProps> = ({
                 <Check className="w-4 h-4" />
                 <span>I Have Connected WhatsApp — Approve Now</span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Modal: Individual User Daily Limit & Reset Window Settings */}
+      {customLimitTargetUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl max-w-lg w-full p-6 shadow-2xl relative space-y-5">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-purple-100 dark:bg-purple-950/60 text-[#5722AF] dark:text-purple-300 flex items-center justify-center shrink-0">
+                  <Sliders className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-zinc-900 dark:text-white">
+                    Individual Limit Settings
+                  </h3>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    User: <strong className="text-zinc-800 dark:text-zinc-200">@{customLimitTargetUser.username}</strong> ({customLimitTargetUser.businessName})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCustomLimitTargetUser(null)}
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Feedback message banner if saved */}
+            {customLimitMsg && (
+              <div
+                className={`p-3 rounded-xl text-xs flex items-center gap-2 ${
+                  customLimitMsg.type === 'success'
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 text-emerald-700 dark:text-emerald-300'
+                    : 'bg-rose-50 dark:bg-rose-950/40 border border-rose-200 text-rose-700 dark:text-rose-300'
+                }`}
+              >
+                {customLimitMsg.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                )}
+                <span>{customLimitMsg.text}</span>
+              </div>
+            )}
+
+            {/* Current Global Limits Reference Card */}
+            <div className="p-3.5 rounded-2xl bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700/80 flex items-center justify-between text-xs">
+              <div className="space-y-0.5">
+                <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">
+                  Global Plan Default
+                </span>
+                <p className="font-bold text-zinc-800 dark:text-zinc-200">
+                  {WhatsAppLimitManager.getPlanLimit('user', customLimitTargetUser.subscriptionType, customLimitTargetUser.planType, planLimits)} messages / {planLimits.resetHours || 24}h window
+                </p>
+              </div>
+              <span className="text-[11px] px-2.5 py-1 rounded-full bg-zinc-200 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-medium">
+                {customLimitTargetUser.subscriptionType === 'paid'
+                  ? (customLimitTargetUser.planType || 'Paid Plan')
+                  : customLimitTargetUser.subscriptionType === 'trial'
+                  ? 'Free Trial'
+                  : 'Unsubscribed'}
+              </span>
+            </div>
+
+            {/* Mode Switch: Global vs Custom */}
+            <div className="space-y-3">
+              <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider">
+                Select Limit Mode for @{customLimitTargetUser.username}:
+              </label>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setCustomLimitEnabledInput(false)}
+                  className={`p-3 rounded-2xl border text-left transition cursor-pointer ${
+                    !customLimitEnabledInput
+                      ? 'bg-zinc-100 dark:bg-zinc-800 border-zinc-400 dark:border-zinc-600 ring-2 ring-zinc-400/30'
+                      : 'border-zinc-200 dark:border-zinc-700/80 hover:bg-zinc-50 dark:hover:bg-zinc-800/40'
+                  }`}
+                >
+                  <div className="font-bold text-xs text-zinc-900 dark:text-zinc-100">
+                    Use Global Plan Limit
+                  </div>
+                  <div className="text-[11px] text-zinc-500 mt-0.5">
+                    Follows standard plan settings ({planLimits.resetHours || 24}h window)
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setCustomLimitEnabledInput(true)}
+                  className={`p-3 rounded-2xl border text-left transition cursor-pointer ${
+                    customLimitEnabledInput
+                      ? 'bg-purple-50/70 dark:bg-purple-950/40 border-[#5722AF] dark:border-purple-600 ring-2 ring-[#5722AF]/30'
+                      : 'border-zinc-200 dark:border-zinc-700/80 hover:bg-zinc-50 dark:hover:bg-zinc-800/40'
+                  }`}
+                >
+                  <div className="font-bold text-xs text-[#5722AF] dark:text-purple-300 flex items-center gap-1">
+                    <Zap className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Custom Limit (Override)</span>
+                  </div>
+                  <div className="text-[11px] text-zinc-500 mt-0.5">
+                    Set specific message limit &amp; reset window
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            {/* Custom Settings Form (Active when customLimitEnabledInput is true) */}
+            {customLimitEnabledInput && (
+              <div className="p-4 rounded-2xl bg-purple-50/40 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800/70 space-y-4 animate-in fade-in">
+                {/* 1. Daily Message Limit */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
+                      <Zap className="w-3.5 h-3.5 text-[#5722AF] dark:text-purple-400" />
+                      <span>Custom Message Limit (Messages)</span>
+                    </label>
+                    <span className="text-[11px] text-zinc-400">e.g. 10, 50, 100</span>
+                  </div>
+                  <input
+                    type="number"
+                    min="1"
+                    max="50000"
+                    value={customDailyLimitInput}
+                    onChange={e => setCustomDailyLimitInput(Math.max(1, Number(e.target.value) || 1))}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 text-sm font-bold text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#5722AF]"
+                  />
+                  {/* Preset Pills */}
+                  <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                    <span className="text-[10px] text-zinc-400">Quick set:</span>
+                    {[10, 25, 50, 100, 250, 500, 1000].map(val => (
+                      <button
+                        key={val}
+                        type="button"
+                        onClick={() => setCustomDailyLimitInput(val)}
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition cursor-pointer ${
+                          customDailyLimitInput === val
+                            ? 'bg-[#5722AF] text-white'
+                            : 'bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-purple-50'
+                        }`}
+                      >
+                        {val} msgs
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 2. Reset Window in Hours */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-[#5722AF] dark:text-purple-400" />
+                      <span>Reset Window (Hours)</span>
+                    </label>
+                    <span className="text-[11px] text-zinc-400">
+                      {customResetHoursInput >= 24
+                        ? `${Math.round(customResetHoursInput / 24)} day(s)`
+                        : `${customResetHoursInput} hour(s)`}
+                    </span>
+                  </div>
+                  <input
+                    type="number"
+                    min="1"
+                    max="8760"
+                    value={customResetHoursInput}
+                    onChange={e => setCustomResetHoursInput(Math.max(1, Number(e.target.value) || 1))}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 text-sm font-bold text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#5722AF]"
+                  />
+                  {/* Preset Pills */}
+                  <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                    <span className="text-[10px] text-zinc-400">Presets:</span>
+                    {[
+                      { label: '24h (1 Day)', hours: 24 },
+                      { label: '48h (2 Days)', hours: 48 },
+                      { label: '72h (3 Days)', hours: 72 },
+                      { label: '7 Days', hours: 168 },
+                      { label: '30 Days (1 Mo)', hours: 720 },
+                      { label: '90 Days (3 Mo)', hours: 2160 }
+                    ].map(p => (
+                      <button
+                        key={p.hours}
+                        type="button"
+                        onClick={() => setCustomResetHoursInput(p.hours)}
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition cursor-pointer ${
+                          customResetHoursInput === p.hours
+                            ? 'bg-[#5722AF] text-white'
+                            : 'bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-purple-50'
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="p-2.5 bg-purple-100/60 dark:bg-purple-950/60 rounded-xl text-[11px] text-purple-900 dark:text-purple-200 flex items-start gap-2">
+                  <ShieldCheck className="w-4 h-4 text-[#5722AF] shrink-0 mt-0.5" />
+                  <span>
+                    When saved, <strong>@{customLimitTargetUser.username}</strong> will be allowed to send up to <strong>{customDailyLimitInput} messages</strong> per <strong>{customResetHoursInput} hour window</strong>. Other users continue using global plan limits.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Modal Actions */}
+            <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                {customLimitTargetUser.customLimitEnabled && (
+                  <button
+                    type="button"
+                    disabled={isSavingCustomLimit}
+                    onClick={() => handleSaveCustomLimit(false)}
+                    className="px-3 py-2 rounded-xl text-xs font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer"
+                  >
+                    Revert to Global Limit
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCustomLimitTargetUser(null)}
+                  className="px-4 py-2 rounded-xl border border-zinc-200 dark:border-zinc-700 text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isSavingCustomLimit}
+                  onClick={() => handleSaveCustomLimit()}
+                  className="px-5 py-2 rounded-xl bg-[#5722AF] hover:bg-[#471a93] text-white text-xs font-semibold flex items-center gap-1.5 shadow-md transition cursor-pointer disabled:opacity-50"
+                >
+                  {isSavingCustomLimit ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Save Settings</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>
