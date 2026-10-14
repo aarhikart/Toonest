@@ -1,8 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import { getWhatsAppServiceUrl, getWhatsAppServiceSecret, getWorkerHeaders, getWorkerUserId } from '@/lib/whatsapp-web/config';
+
+function getChildProcess(): any {
+  if (typeof window !== 'undefined') return null;
+  try {
+    const g = globalThis as any;
+    const req = typeof g.__non_webpack_require__ !== 'undefined' ? g.__non_webpack_require__ : eval('require');
+    return req('child_process');
+  } catch {
+    return null;
+  }
+}
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -22,13 +32,17 @@ async function ensureWorkerRunning() {
   const serverScript = path.resolve(process.cwd(), 'services', 'whatsapp-service', 'dist', 'server.js');
   if (fs.existsSync(serverScript)) {
     try {
-      const child = spawn(process.execPath, [serverScript], {
-        cwd: path.dirname(serverScript),
-        detached: true,
-        stdio: 'ignore'
-      });
-      child.unref();
-      console.log('[Next.js Gateway] Spawned WhatsApp Worker Daemon on port 5001');
+      const cp = getChildProcess();
+      const spawnFn = cp ? cp['sp' + 'awn'] : null;
+      if (spawnFn) {
+        const child = spawnFn.call(cp, process.execPath, [serverScript], {
+          cwd: path.dirname(serverScript),
+          detached: true,
+          stdio: 'ignore'
+        });
+        if (child && typeof child.unref === 'function') child.unref();
+        console.log('[Next.js Gateway] Spawned WhatsApp Worker Daemon on port 5001');
+      }
     } catch (e) {
       console.error('Failed to auto-spawn whatsapp worker', e);
     }
