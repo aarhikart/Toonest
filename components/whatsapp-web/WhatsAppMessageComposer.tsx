@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   MessageSquare,
   Sparkles,
@@ -13,7 +13,6 @@ import {
   X,
   HelpCircle,
   Globe,
-  Link as LinkIcon,
   ExternalLink,
   CheckCircle2
 } from 'lucide-react';
@@ -67,15 +66,7 @@ export const WhatsAppMessageComposer: React.FC<WhatsAppMessageComposerProps> = (
     onMessageChange(message + ` ${varName} `);
   };
 
-  const handleAddLink = () => {
-    const defaultUrl = 'https://toonest.vercel.app';
-    const entered = window.prompt('Enter website URL to insert into message:', defaultUrl);
-    if (!entered) return;
-    const trimmed = entered.trim();
-    if (!trimmed) return;
-    const clean = trimmed.startsWith('http://') || trimmed.startsWith('https://') ? trimmed : `https://${trimmed}`;
-    onMessageChange(message ? `${message.trimEnd()} ${clean} ` : `${clean} `);
-  };
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
 
   const sampleContact: WebContact = previewContact || {
     id: 'preview',
@@ -242,7 +233,7 @@ export const WhatsAppMessageComposer: React.FC<WhatsAppMessageComposerProps> = (
           </div>
         </div>
 
-        {/* Dynamic Variable & Link Chips */}
+        {/* Dynamic Variable & Preview Controls */}
         <div className="flex items-center gap-1.5 flex-wrap shrink-0">
           <span className="text-[11px] font-semibold text-zinc-400 hidden sm:inline">Insert:</span>
           <button
@@ -263,216 +254,212 @@ export const WhatsAppMessageComposer: React.FC<WhatsAppMessageComposerProps> = (
           </button>
           <button
             type="button"
-            onClick={handleAddLink}
-            className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:hover:bg-blue-900 text-blue-600 dark:text-blue-300 rounded-lg text-xs font-medium flex items-center gap-1 transition cursor-pointer"
-            title="Insert clickable web link (e.g. https://toonest.vercel.app)"
+            onClick={() => setIsPreviewModalOpen(true)}
+            className="px-2.5 py-1 bg-[#5722AF]/10 hover:bg-[#5722AF]/20 text-[#5722AF] dark:text-purple-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer border border-[#5722AF]/20 dark:border-purple-800/40"
+            title="Preview how message looks on WhatsApp"
           >
-            <LinkIcon className="w-3 h-3" />
-            <span>Add Link</span>
+            <Smartphone className="w-3.5 h-3.5" />
+            <span>Preview Message</span>
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Composer Form */}
-        <div className="lg:col-span-7 space-y-4">
-          <div>
-            <textarea
-              rows={4}
-              value={message}
-              onChange={e => onMessageChange(e.target.value)}
-              placeholder="Hi {name}, thank you for choosing ToolNest! Check out https://toonest.vercel.app for our latest services..."
-              className="w-full text-xs p-3.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-[#5722AF] leading-relaxed"
-            />
-            <div className="flex justify-between items-center text-[11px] text-zinc-400 mt-1">
-              <span>Dynamic Variables: {"{name}"}</span>
-              <span>{message.length} characters</span>
-            </div>
-
-            {detectedUrl && (
-              <div className="flex items-center justify-between gap-2 text-[11px] bg-blue-50/80 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200/70 dark:border-blue-900/50 rounded-xl px-3 py-1.5 mt-2">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <Globe className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                  <span className="truncate">
-                    Link detected: <strong className="font-mono font-medium">{detectedUrl.url}</strong>
-                  </span>
-                </div>
-                <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider bg-blue-200/60 dark:bg-blue-800/60 px-1.5 py-0.5 rounded text-blue-800 dark:text-blue-200">
-                  WhatsApp Link Ready
-                </span>
-              </div>
-            )}
+      {/* Main Composer Form - Full Width */}
+      <div className="space-y-4">
+        <div>
+          <textarea
+            rows={4}
+            value={message}
+            onChange={e => onMessageChange(e.target.value)}
+            placeholder="Hi {name}, thank you for choosing ToolNest! Your order is being processed..."
+            className="w-full text-xs p-3.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-[#5722AF] leading-relaxed"
+          />
+          <div className="flex justify-between items-center text-[11px] text-zinc-400 mt-1">
+            <span>Dynamic Variables: {"{name}"}</span>
+            <span>{message.length} characters</span>
           </div>
+        </div>
 
-          {/* Media Attachment Selector */}
-          <div className="space-y-2">
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileSelected}
-              accept="image/*,application/pdf"
-              className="hidden"
-            />
+        {/* Media Attachment Selector */}
+        <div className="space-y-2">
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileSelected}
+            accept="image/*,application/pdf"
+            className="hidden"
+          />
 
-            {!media ? (
+          {!media ? (
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full py-2 px-3 border border-dashed border-zinc-300 dark:border-zinc-700 hover:border-[#5722AF] rounded-xl text-xs font-medium text-zinc-600 dark:text-zinc-400 flex items-center justify-center gap-2 transition bg-zinc-50/50 dark:bg-zinc-800/30"
+            >
+              <Paperclip className="w-3.5 h-3.5 text-[#5722AF]" />
+              Attach Image or PDF Document (Optional)
+            </button>
+          ) : (
+            <div className="p-2.5 sm:p-3 bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800/50 rounded-xl flex items-center justify-between gap-2.5 min-w-0">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1 overflow-hidden">
+                {media.isImage ? (
+                  <img src={media.dataUrl} alt="Preview" className="w-10 h-10 object-cover rounded-lg border border-purple-200 shrink-0" />
+                ) : (
+                  <div className="w-10 h-10 rounded-lg bg-red-100 dark:bg-red-950 text-red-600 flex items-center justify-center font-bold text-xs shrink-0">
+                    PDF
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <div
+                    className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 truncate block"
+                    title={media.name}
+                  >
+                    {getShortFileName(media.name, 22)}
+                  </div>
+                  <div className="text-[11px] text-zinc-400 font-mono">{(media.size / 1024).toFixed(1)} KB</div>
+                </div>
+              </div>
+
               <button
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="w-full py-2 px-3 border border-dashed border-zinc-300 dark:border-zinc-700 hover:border-[#5722AF] rounded-xl text-xs font-medium text-zinc-600 dark:text-zinc-400 flex items-center justify-center gap-2 transition bg-zinc-50/50 dark:bg-zinc-800/30"
+                onClick={() => onMediaChange(null)}
+                className="p-1.5 text-zinc-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 transition shrink-0"
+                title="Remove attachment"
               >
-                <Paperclip className="w-3.5 h-3.5 text-[#5722AF]" />
-                Attach Image or PDF Document (Optional)
+                <X className="w-4 h-4" />
               </button>
-            ) : (
-              <div className="p-2.5 sm:p-3 bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800/50 rounded-xl flex items-center justify-between gap-2.5 min-w-0">
-                <div className="flex items-center gap-2.5 min-w-0 flex-1 overflow-hidden">
-                  {media.isImage ? (
-                    <img src={media.dataUrl} alt="Preview" className="w-10 h-10 object-cover rounded-lg border border-purple-200 shrink-0" />
-                  ) : (
-                    <div className="w-10 h-10 rounded-lg bg-red-100 dark:bg-red-950 text-red-600 flex items-center justify-center font-bold text-xs shrink-0">
-                      PDF
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div
-                      className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 truncate block"
-                      title={media.name}
-                    >
-                      {getShortFileName(media.name, 22)}
-                    </div>
-                    <div className="text-[11px] text-zinc-400 font-mono">{(media.size / 1024).toFixed(1)} KB</div>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => onMediaChange(null)}
-                  className="p-1.5 text-zinc-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 transition shrink-0"
-                  title="Remove attachment"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Quick Presets */}
-          <div>
-            <span className="text-[11px] font-semibold text-zinc-500 block mb-1.5">Load Template Preset:</span>
-            <div className="flex flex-wrap gap-1.5">
-              {presets.map((p, idx) => (
-                <button
-                  key={idx}
-                  type="button"
-                  onClick={() => onMessageChange(p.text)}
-                  className="px-3 py-1 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded-lg text-[11px] font-medium text-zinc-700 dark:text-zinc-300 transition"
-                >
-                  {p.label}
-                </button>
-              ))}
             </div>
-          </div>
+          )}
+        </div>
 
-          {/* Anti-Ban Delay Slider */}
-          <div className="p-3.5 bg-zinc-50 dark:bg-zinc-800/60 rounded-xl border border-zinc-200 dark:border-zinc-700 space-y-2">
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
-                <Sliders className="w-3.5 h-3.5 text-[#5722AF]" />
-                Safe Delay Between Messages:
-              </span>
-              <span className="font-bold text-[#5722AF] dark:text-purple-300">{delaySeconds < 7 ? 7 : delaySeconds} seconds</span>
-            </div>
-            <div className="space-y-1">
-              <input
-                type="range"
-                min={7}
-                max={60}
-                value={delaySeconds < 7 ? 7 : delaySeconds}
-                onChange={e => onDelayChange(Math.max(7, Math.min(60, parseInt(e.target.value, 10) || 7)))}
-                className="w-full accent-[#5722AF] cursor-pointer"
-              />
-              <div className="flex justify-between text-[10px] text-zinc-400 font-mono">
-                <span>7s (Min)</span>
-                <span>30s</span>
-                <span>60s (Max)</span>
-              </div>
-            </div>
-            <p className="text-[10px] text-zinc-500">
-              Safe waiting time between 7 to 60 seconds. Pausing between messages protects your WhatsApp account from being blocked.
-            </p>
+        {/* Quick Presets */}
+        <div>
+          <span className="text-[11px] font-semibold text-zinc-500 block mb-1.5">Load Template Preset:</span>
+          <div className="flex flex-wrap gap-1.5">
+            {presets.map((p, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => onMessageChange(p.text)}
+                className="px-3 py-1 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded-lg text-[11px] font-medium text-zinc-700 dark:text-zinc-300 transition"
+              >
+                {p.label}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Right Smartphone Chat Preview */}
-        <div className="lg:col-span-5 bg-zinc-100 dark:bg-zinc-800/40 p-4 rounded-2xl border border-zinc-200 dark:border-zinc-700/70 flex flex-col justify-center items-center">
-          <span className="text-[11px] font-semibold text-zinc-400 mb-2.5 flex items-center gap-1">
-            <Smartphone className="w-3.5 h-3.5" /> WhatsApp Message Preview
-          </span>
-
-          <div className="w-full max-w-xs bg-[#efeae2] dark:bg-[#0b141a] rounded-2xl shadow-md p-3 border border-zinc-300 dark:border-zinc-700">
-            <div className="bg-[#5722AF] text-white text-[11px] font-semibold px-3 py-1.5 rounded-t-xl flex items-center justify-between">
-              <span>{sampleContact.name}</span>
-              <span className="text-[9px] opacity-80">WhatsApp Web</span>
-            </div>
-
-            <div className="py-3 px-1 min-h-[140px] flex items-end justify-end">
-              <div className="bg-white dark:bg-[#1f2c34] text-zinc-900 dark:text-zinc-100 p-2.5 rounded-2xl rounded-tr-xs shadow-xs text-xs max-w-[95%] space-y-2">
-                {media && media.isImage && (
-                  <img src={media.dataUrl} alt="Attached image" className="rounded-xl max-h-36 w-full object-cover" />
-                )}
-                {media && !media.isImage && (
-                  <div className="p-2 bg-zinc-100 dark:bg-zinc-800 rounded-lg flex items-center gap-2 text-[11px] font-mono min-w-0">
-                    <FileText className="w-4 h-4 text-red-500 shrink-0" />
-                    <span className="truncate" title={media.name}>{getShortFileName(media.name, 18)}</span>
-                  </div>
-                )}
-                {/* WhatsApp Authentic Rich Link Preview Card */}
-                {detectedUrl && (
-                  <a
-                    href={detectedUrl.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block rounded-xl overflow-hidden bg-zinc-100 dark:bg-zinc-800/80 border border-zinc-200/90 dark:border-zinc-700/80 hover:bg-zinc-200/60 dark:hover:bg-zinc-700/60 transition group cursor-pointer text-left"
-                  >
-                    <div className="h-20 bg-gradient-to-r from-purple-700 via-indigo-600 to-blue-600 p-2.5 flex items-end justify-between relative">
-                      <div className="absolute top-2 right-2">
-                        <span className="p-1 rounded-md bg-black/30 backdrop-blur-xs text-white inline-flex items-center">
-                          <ExternalLink className="w-3 h-3" />
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-white/95 text-[11px] font-bold">
-                        <Globe className="w-3.5 h-3.5" />
-                        <span className="truncate max-w-[190px]">{detectedUrl.domain}</span>
-                      </div>
-                    </div>
-                    <div className="p-2 space-y-0.5">
-                      <p className="text-[11px] font-bold text-zinc-900 dark:text-zinc-100 line-clamp-1 group-hover:text-[#5722AF] dark:group-hover:text-purple-300">
-                        {detectedUrl.domain.includes('toonest') ? 'ToolNest - Free Online Web Tools & Utilities' : detectedUrl.domain}
-                      </p>
-                      <p className="text-[10px] text-zinc-500 dark:text-zinc-400 line-clamp-2 leading-tight">
-                        {detectedUrl.domain.includes('toonest')
-                          ? 'Fast, free online web tools, marketing utilities & WhatsApp automations.'
-                          : `Click to visit ${detectedUrl.url}`}
-                      </p>
-                      <span className="text-[9px] text-zinc-400 font-mono block pt-0.5">
-                        {detectedUrl.domain}
-                      </span>
-                    </div>
-                  </a>
-                )}
-
-                <p className="leading-relaxed whitespace-pre-line text-zinc-800 dark:text-zinc-200 text-xs text-left">
-                  {renderMessageContent(formattedPreview || 'Compose your message text...')}
-                </p>
-                <div className="flex items-center justify-end gap-1 text-[9px] text-zinc-400">
-                  <span>12:00 PM</span>
-                  <CheckCheck className="w-3 h-3 text-blue-500" />
-                </div>
-              </div>
+        {/* Anti-Ban Delay Slider */}
+        <div className="p-3.5 bg-zinc-50 dark:bg-zinc-800/60 rounded-xl border border-zinc-200 dark:border-zinc-700 space-y-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
+              <Sliders className="w-3.5 h-3.5 text-[#5722AF]" />
+              Safe Delay Between Messages:
+            </span>
+            <span className="font-bold text-[#5722AF] dark:text-purple-300">{delaySeconds < 7 ? 7 : delaySeconds} seconds</span>
+          </div>
+          <div className="space-y-1">
+            <input
+              type="range"
+              min={7}
+              max={60}
+              value={delaySeconds < 7 ? 7 : delaySeconds}
+              onChange={e => onDelayChange(Math.max(7, Math.min(60, parseInt(e.target.value, 10) || 7)))}
+              className="w-full accent-[#5722AF] cursor-pointer"
+            />
+            <div className="flex justify-between text-[10px] text-zinc-400 font-mono">
+              <span>7s (Min)</span>
+              <span>30s</span>
+              <span>60s (Max)</span>
             </div>
           </div>
+          <p className="text-[10px] text-zinc-500">
+            Safe waiting time between 7 to 60 seconds. Pausing between messages protects your WhatsApp account from being blocked.
+          </p>
         </div>
       </div>
+
+      {/* Responsive WhatsApp Message Preview Popup Modal */}
+      {isPreviewModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
+          onClick={() => setIsPreviewModalOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm bg-white dark:bg-[#131620] rounded-2xl sm:rounded-3xl shadow-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden flex flex-col max-h-[92vh]"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="px-4 py-3 bg-zinc-50 dark:bg-zinc-800/80 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-zinc-900 dark:text-white font-bold text-xs sm:text-sm">
+                <Smartphone className="w-4 h-4 text-[#5722AF] dark:text-purple-400" />
+                <span>WhatsApp Message Preview</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsPreviewModalOpen(false)}
+                className="p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-700 transition cursor-pointer"
+                aria-label="Close preview"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Smartphone Mockup Body */}
+            <div className="p-3 sm:p-4 overflow-y-auto overflow-x-hidden flex flex-col items-center justify-center bg-zinc-100/60 dark:bg-zinc-900/60">
+              <div className="w-full max-w-xs bg-[#efeae2] dark:bg-[#0b141a] rounded-2xl shadow-md border border-zinc-300 dark:border-zinc-700 overflow-hidden">
+                {/* WhatsApp Chat Bar Header */}
+                <div className="bg-[#5722AF] text-white text-[11px] font-semibold px-3 py-2 flex items-center justify-between">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center text-[10px] font-bold">
+                      {(sampleContact.name || 'A').charAt(0).toUpperCase()}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="truncate text-xs font-semibold leading-tight">{sampleContact.name}</div>
+                      <div className="text-[9px] text-white/80 leading-none">Online</div>
+                    </div>
+                  </div>
+                  <span className="text-[9px] opacity-80 shrink-0">WhatsApp Web</span>
+                </div>
+
+                {/* Message Bubble Container */}
+                <div className="p-3 min-h-[140px] flex items-end justify-end">
+                  <div className="bg-white dark:bg-[#1f2c34] text-zinc-900 dark:text-zinc-100 p-2.5 rounded-2xl rounded-tr-xs shadow-xs text-xs max-w-[95%] space-y-2 break-words overflow-hidden">
+                    {media && media.isImage && (
+                      <img src={media.dataUrl} alt="Attached image" className="rounded-xl max-h-40 w-full object-cover" />
+                    )}
+                    {media && !media.isImage && (
+                      <div className="p-2 bg-zinc-100 dark:bg-zinc-800 rounded-lg flex items-center gap-2 text-[11px] font-mono min-w-0">
+                        <FileText className="w-4 h-4 text-red-500 shrink-0" />
+                        <span className="truncate" title={media.name}>{getShortFileName(media.name, 18)}</span>
+                      </div>
+                    )}
+
+                    <p className="leading-relaxed whitespace-pre-line text-zinc-800 dark:text-zinc-200 text-xs text-left">
+                      {renderMessageContent(formattedPreview || 'Compose your message text...')}
+                    </p>
+                    <div className="flex items-center justify-end gap-1 text-[9px] text-zinc-400">
+                      <span>12:00 PM</span>
+                      <CheckCheck className="w-3 h-3 text-blue-500" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-4 py-2.5 bg-zinc-50 dark:bg-zinc-800/80 border-t border-zinc-200 dark:border-zinc-800 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsPreviewModalOpen(false)}
+                className="px-4 py-1.5 bg-zinc-200 hover:bg-zinc-300 dark:bg-zinc-700 dark:hover:bg-zinc-600 text-zinc-800 dark:text-zinc-200 rounded-xl text-xs font-semibold transition cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

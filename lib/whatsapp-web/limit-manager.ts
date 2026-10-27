@@ -439,6 +439,23 @@ export class WhatsAppLimitManager {
   }
 
   /**
+   * Clears the delivered numbers list so all contacts can be messaged again on Reset.
+   */
+  static clearDeliveredNumbers(username: string): void {
+    if (typeof window === 'undefined') return;
+    const cleanUser = (username || 'default').toLowerCase().trim();
+    const storageKey = `${STORAGE_PREFIX}${cleanUser}`;
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw) {
+        const record = JSON.parse(raw);
+        record.deliveredNumbers = [];
+        localStorage.setItem(storageKey, JSON.stringify(record));
+      }
+    } catch {}
+  }
+
+  /**
    * Helper to format time remaining until reset (e.g. "17h 24m" or "45m")
    */
   static formatTimeRemaining(resetTime: number): string {

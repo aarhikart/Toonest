@@ -108,11 +108,23 @@ export default function WhatsAppMarketingPage() {
         setSession(userSession);
 
         try {
-          const savedContacts = localStorage.getItem(`toolnest_wa_contacts_${username}`);
-          if (savedContacts) {
-            setContacts(JSON.parse(savedContacts));
+          const contactRes = await fetch('/api/whatsapp-marketing/contacts');
+          let loadedContacts: WebContact[] | null = null;
+          if (contactRes.ok) {
+            const contactData = await contactRes.json();
+            if (contactData.success && Array.isArray(contactData.contacts) && contactData.contacts.length > 0) {
+              loadedContacts = contactData.contacts;
+            }
+          }
+          if (loadedContacts) {
+            setContacts(loadedContacts);
           } else {
-            setContacts(WhatsAppSenderEngine.getSampleContacts());
+            const savedContacts = localStorage.getItem(`toolnest_wa_contacts_${username}`);
+            if (savedContacts) {
+              setContacts(JSON.parse(savedContacts));
+            } else {
+              setContacts(WhatsAppSenderEngine.getSampleContacts());
+            }
           }
 
           const savedTmpl = localStorage.getItem(`toolnest_wa_template_${username}`);
@@ -214,6 +226,11 @@ export default function WhatsAppMarketingPage() {
     try {
       const username = currentUser?.username?.toLowerCase() || 'default';
       localStorage.setItem(`toolnest_wa_contacts_${username}`, JSON.stringify(newContacts));
+      fetch('/api/whatsapp-marketing/contacts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contacts: newContacts })
+      }).catch(() => {});
     } catch {}
   };
 
@@ -303,6 +320,7 @@ export default function WhatsAppMarketingPage() {
     <div className="min-h-screen bg-zinc-50 dark:bg-[#0a0d14] text-zinc-900 dark:text-zinc-100 flex flex-col transition-colors">
       <Header
         activeToolName="WhatsApp Marketing Platform"
+        customLogoUrl="/logo.png"
         hideBrowseTools={true}
         onToggleUserSidebar={currentUser ? () => setIsUserSidebarOpen(prev => !prev) : undefined}
         user={currentUser ? { username: currentUser.username, businessName: currentUser.businessName } : null}

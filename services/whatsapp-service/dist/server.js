@@ -324,6 +324,7 @@ function getOrCreateCampaign(userId) {
             currentIndex: 0,
             sentCount: 0,
             failedCount: 0,
+            contacts: [],
             logs: []
         };
         activeCampaigns.set(userId, campaign);
@@ -337,7 +338,7 @@ app.post('/campaign/start', verifySecret, async (req, res) => {
     if (!engine || !engine.getStatus().isConnected || !engine.getClient()) {
         return res.status(400).json({ error: `WhatsApp client for tenant "${userId}" is not connected. Please scan QR code in Step 1.` });
     }
-    const { contacts, template, delaySeconds = 3, mediaBase64, mediaMimeType, fileName, isImage, sendTextSeparately } = req.body;
+    const { contacts, template, delaySeconds = 7, mediaBase64, mediaMimeType, fileName, isImage, sendTextSeparately } = req.body;
     if (!Array.isArray(contacts) || contacts.length === 0) {
         return res.status(400).json({ error: 'Valid contacts array required' });
     }
@@ -346,10 +347,11 @@ app.post('/campaign/start', verifySecret, async (req, res) => {
     campaign.isPaused = false;
     campaign.total = contacts.length;
     campaign.currentIndex = 0;
-    campaign.sentCount = 0;
-    campaign.failedCount = 0;
+    campaign.sentCount = contacts.filter((c) => c.status === 'SENT').length;
+    campaign.failedCount = contacts.filter((c) => c.status === 'FAILED').length;
+    campaign.contacts = contacts.map((c) => ({ ...c }));
     campaign.logs = [];
-    // Run asynchronously in background for this specific user
+    // Run asynchronously in background for this specific user - completely independent of the browser tab!
     (async () => {
         let media;
         if (mediaBase64 && mediaMimeType) {
@@ -360,7 +362,8 @@ app.post('/campaign/start', verifySecret, async (req, res) => {
                 isImage: isImage ?? mediaMimeType.startsWith('image/')
             };
         }
-        for (let i = 0; i < contacts.length; i++) {
+        const effectiveDelay = Math.max(7, Math.min(60, Number(delaySeconds) || 7));
+        for (let i = 0; i < campaign.contacts.length; i++) {
             if (!campaign.isRunning)
                 break;
             while (campaign.isPaused) {
@@ -371,7 +374,19 @@ app.post('/campaign/start', verifySecret, async (req, res) => {
             if (!campaign.isRunning)
                 break;
             campaign.currentIndex = i;
-            const contact = contacts[i];
+            const contact = campaign.contacts[i];
+            // Prevent duplicate messages: skip already sent contacts
+            if (contact.status === 'SENT') {
+                continue;
+            }
+            // Safe anti-ban delay between consecutive messages
+            if (i > 0) {
+                const delayMs = (effectiveDelay + (Math.random() * 1.5 - 0.75)) * 1000;
+                await new Promise(r => setTimeout(r, Math.max(7000, delayMs)));
+            }
+            if (!campaign.isRunning)
+                break;
+            contact.status = 'SENDING';
             const safeName = (contact.name || 'Friend').trim();
             const firstName = safeName.split(' ')[0] || safeName;
             const phone = contact.phoneNumber || '';
@@ -380,17 +395,29 @@ app.post('/campaign/start', verifySecret, async (req, res) => {
                 .replace(/(\{\{\s*first_name\s*\}\}|\{\s*first_name\s*\}|\[\s*first_name\s*\])/gi, firstName)
                 .replace(/(\{\{\s*(?:phone|number|mobile)\s*\}\}|\{\s*(?:phone|number|mobile)\s*\}|\[\s*(?:phone|number|mobile)\s*\]|\{\{\s*2\s*\}\}|\{\s*2\s*\})/gi, phone)
                 .replace(/(\{\{\s*random\s*\}\}|\{\s*random\s*\})/gi, Math.random().toString(36).substring(2, 7).toUpperCase());
-            const delayMs = (delaySeconds + (Math.random() * 1.5 - 0.75)) * 1000;
-            await new Promise(r => setTimeout(r, Math.max(1500, delayMs)));
-            const result = await engine.sendMessage(contact.phoneNumber, renderedText, media, {
+            // Attempt sending with 1 retry on transient failure
+            let result = await engine.sendMessage(contact.phoneNumber, renderedText, media, {
                 sendTextSeparately: sendTextSeparately === true,
                 linkPreview: true
             });
+            if (!result.success && campaign.isRunning) {
+                // Wait 2s and retry once
+                await new Promise(r => setTimeout(r, 2000));
+                result = await engine.sendMessage(contact.phoneNumber, renderedText, media, {
+                    sendTextSeparately: sendTextSeparately === true,
+                    linkPreview: true
+                });
+            }
             if (result.success) {
                 campaign.sentCount++;
+                contact.status = 'SENT';
+                contact.sentAt = new Date().toISOString();
+                contact.error = undefined;
             }
             else {
                 campaign.failedCount++;
+                contact.status = 'FAILED';
+                contact.error = result.error || 'Delivery failed';
             }
             campaign.logs.unshift({
                 id: `log_${Date.now()}_${i}`,
@@ -420,6 +447,15 @@ app.post('/campaign/stop', verifySecret, (req, res) => {
     campaign.isRunning = false;
     campaign.isPaused = false;
     res.json({ success: true, message: 'Campaign stopped', userId });
+});
+// Pause / Resume Campaign for specific tenant
+app.post('/campaign/pause', verifySecret, (req, res) => {
+    const userId = getUserId(req);
+    const campaign = getOrCreateCampaign(userId);
+    if (campaign.isRunning) {
+        campaign.isPaused = !campaign.isPaused;
+    }
+    res.json({ success: true, isPaused: campaign.isPaused, userId });
 });
 app.listen(PORT, () => {
     console.log(`[WhatsApp Worker] Multi-tenant persistent daemon running on port ${PORT}`);

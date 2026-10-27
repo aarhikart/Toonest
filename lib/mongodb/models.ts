@@ -206,3 +206,108 @@ export const RenewalRequest = models.RenewalRequest || model<IRenewalRequest>('R
 export const UserQuota = models.UserQuota || model<IUserQuota>('UserQuota', UserQuotaSchema);
 export const Invoice = models.Invoice || model<IInvoice>('Invoice', InvoiceSchema);
 
+export interface IWhatsAppAudienceContact {
+  id: string;
+  name: string;
+  phoneNumber: string;
+  status: 'PENDING' | 'SENDING' | 'SENT' | 'FAILED';
+  sentAt?: string;
+  error?: string;
+}
+
+export interface IWhatsAppAudience extends Document {
+  username: string;
+  contacts: IWhatsAppAudienceContact[];
+  updatedAt: Date;
+}
+
+const WhatsAppAudienceSchema = new Schema<IWhatsAppAudience>({
+  username: { type: String, required: true, unique: true, index: true, lowercase: true, trim: true },
+  contacts: [
+    {
+      id: { type: String, required: true },
+      name: { type: String, default: '' },
+      phoneNumber: { type: String, required: true },
+      status: { type: String, default: 'PENDING', enum: ['PENDING', 'SENDING', 'SENT', 'FAILED'] },
+      sentAt: { type: String },
+      error: { type: String }
+    }
+  ],
+  updatedAt: { type: Date, default: Date.now }
+});
+
+export interface IWhatsAppCampaignProgress extends Document {
+  username: string;
+  isRunning: boolean;
+  isPaused: boolean;
+  status: 'idle' | 'running' | 'paused' | 'completed' | 'stopped' | 'failed';
+  total: number;
+  currentIndex: number;
+  sentCount: number;
+  failedCount: number;
+  delaySeconds: number;
+  template: string;
+  media?: {
+    name: string;
+    type: string;
+    size: number;
+    dataUrl?: string;
+    isImage: boolean;
+  } | null;
+  contacts: IWhatsAppAudienceContact[];
+  logs: Array<{
+    id: string;
+    timestamp: string;
+    contactName: string;
+    phoneNumber: string;
+    status: 'SENT' | 'FAILED' | 'PENDING' | 'SENDING';
+    error?: string;
+    message?: string;
+  }>;
+  startedAt?: Date | null;
+  completedAt?: Date | null;
+  updatedAt: Date;
+}
+
+const WhatsAppCampaignProgressSchema = new Schema<IWhatsAppCampaignProgress>({
+  username: { type: String, required: true, unique: true, index: true, lowercase: true, trim: true },
+  isRunning: { type: Boolean, default: false },
+  isPaused: { type: Boolean, default: false },
+  status: { type: String, default: 'idle', enum: ['idle', 'running', 'paused', 'completed', 'stopped', 'failed'] },
+  total: { type: Number, default: 0 },
+  currentIndex: { type: Number, default: 0 },
+  sentCount: { type: Number, default: 0 },
+  failedCount: { type: Number, default: 0 },
+  delaySeconds: { type: Number, default: 7 },
+  template: { type: String, default: '' },
+  media: { type: Schema.Types.Mixed, default: null },
+  contacts: [
+    {
+      id: String,
+      name: String,
+      phoneNumber: String,
+      status: String,
+      sentAt: String,
+      error: String
+    }
+  ],
+  logs: [
+    {
+      id: String,
+      timestamp: String,
+      contactName: String,
+      phoneNumber: String,
+      status: String,
+      error: String,
+      message: String
+    }
+  ],
+  startedAt: { type: Date, default: null },
+  completedAt: { type: Date, default: null },
+  updatedAt: { type: Date, default: Date.now }
+});
+
+export const WhatsAppAudience = models.WhatsAppAudience || model<IWhatsAppAudience>('WhatsAppAudience', WhatsAppAudienceSchema);
+export const WhatsAppCampaignProgress = models.WhatsAppCampaignProgress || model<IWhatsAppCampaignProgress>('WhatsAppCampaignProgress', WhatsAppCampaignProgressSchema);
+
+

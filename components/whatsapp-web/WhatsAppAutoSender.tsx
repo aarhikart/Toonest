@@ -135,6 +135,57 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
   const isRunningRef = useRef(false);
   const isPausedRef = useRef(false);
 
+  // Poll campaign status from MongoDB / Worker Gateway to support tab closures & multi-device sync
+  React.useEffect(() => {
+    let isMounted = true;
+
+    const pollStatus = async () => {
+      try {
+        const res = await fetch('/api/whatsapp-marketing/campaign/status');
+        const data = await res.json();
+        if (!isMounted || !data.success) return;
+
+        if (data.isRunning) {
+          setIsRunning(true);
+          setIsPaused(data.isPaused ?? false);
+          isRunningRef.current = true;
+          isPausedRef.current = data.isPaused ?? false;
+          setCurrentIndex(data.currentIndex ?? 0);
+        } else {
+          if (isRunningRef.current) {
+            setIsRunning(false);
+            setIsPaused(false);
+            isRunningRef.current = false;
+            isPausedRef.current = false;
+          }
+        }
+
+        if (Array.isArray(data.contacts) && data.contacts.length > 0) {
+          onContactsUpdate(data.contacts);
+        }
+
+        if (Array.isArray(data.logs)) {
+          setLogs(data.logs);
+        }
+      } catch (_) {}
+    };
+
+    // Initial check on mount: recover campaign progress if tab was closed or refreshed
+    pollStatus();
+
+    // Poll every 2.5 seconds when campaign is active
+    const timer = setInterval(() => {
+      if (isRunningRef.current) {
+        pollStatus();
+      }
+    }, 2500);
+
+    return () => {
+      isMounted = false;
+      clearInterval(timer);
+    };
+  }, []);
+
   const total = contacts.length;
   const sentCount = contacts.filter(c => c.status === 'SENT').length;
   const failedCount = contacts.filter(c => c.status === 'FAILED').length;
@@ -199,6 +250,53 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
     setIsPaused(false);
     isRunningRef.current = true;
     isPausedRef.current = false;
+
+    if (dispatchMode === 'WORKER') {
+      try {
+        const savedWorkerUrl = typeof window !== 'undefined' ? localStorage.getItem('toolnest_wa_worker_url') || '' : '';
+        const res = await fetch('/api/whatsapp-marketing/campaign/start', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(savedWorkerUrl ? { 'x-worker-url': savedWorkerUrl } : {})
+          },
+          body: JSON.stringify({
+            contacts: currentList,
+            template: messageTemplate,
+            delaySeconds: Math.max(7, Math.min(60, delaySeconds || 7)),
+            media,
+            sendTextSeparately: true
+          })
+        });
+
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          setIsRunning(false);
+          isRunningRef.current = false;
+          alert(data.error || 'Failed to start background campaign.');
+          return;
+        }
+
+        // Trigger immediate status poll to catch initial campaign progress
+        try {
+          const statusRes = await fetch('/api/whatsapp-marketing/campaign/status', {
+            headers: savedWorkerUrl ? { 'x-worker-url': savedWorkerUrl } : {}
+          });
+          if (statusRes.ok) {
+            const statusData = await statusRes.json();
+            if (statusData.success) {
+              if (Array.isArray(statusData.contacts)) onContactsUpdate(statusData.contacts);
+              if (Array.isArray(statusData.logs)) setLogs(statusData.logs);
+            }
+          }
+        } catch (_) {}
+      } catch (err: any) {
+        setIsRunning(false);
+        isRunningRef.current = false;
+        alert('Could not start campaign: ' + (err.message || 'Network error'));
+      }
+      return;
+    }
 
     for (let i = 0; i < currentList.length; i++) {
       if (!isRunningRef.current) break;
@@ -268,101 +366,10 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
       let failureReason = '';
       let msgId = '';
 
-      if (dispatchMode === 'WORKER') {
-        try {
-          // Format URLs with proper https:// scheme so WhatsApp recognises them as clickable links
-          const formattedText = WhatsAppSenderEngine.formatMessageUrls(customizedText);
-          const hasUrl = /https?:\/\/[^\s]+/i.test(formattedText);
-
-          const payload: any = {
-            to: contact.phoneNumber,
-            text: formattedText,
-            sendTextSeparately: !!media && hasUrl,
-            options: {
-              linkPreview: true,
-              sendTextSeparately: !!media && hasUrl
-            }
-          };
-          if (media) {
-            payload.mediaBase64 = media.dataUrl.split(',')[1];
-            payload.mediaMimeType = media.type;
-            payload.fileName = media.name;
-            payload.isImage = media.isImage;
-          }
-
-          const savedWorkerUrl = typeof window !== 'undefined' ? localStorage.getItem('toolnest_wa_worker_url') || '' : '';
-          const requestHeaders: Record<string, string> = {
-            'Content-Type': 'application/json',
-            'x-user-id': effectiveUserId
-          };
-          if (savedWorkerUrl) {
-            requestHeaders['x-worker-url'] = savedWorkerUrl;
-          }
-
-          let res = await fetch('/api/whatsapp-service/send', {
-            method: 'POST',
-            headers: requestHeaders,
-            body: JSON.stringify(payload)
-          });
-
-          let data = await res.json().catch(() => ({}));
-
-          // If failed due to HTTP 413 (Vercel payload limit) or temporary server error (5xx),
-          // auto-fallback directly to the worker gateway
-          if (!res.ok && (res.status === 413 || res.status >= 500)) {
-            const directTarget = savedWorkerUrl || (typeof window !== 'undefined' ? (window as any).__toolnest_gateway_url : '');
-            if (directTarget && directTarget.startsWith('http')) {
-              try {
-                console.log(`Endpoint returned ${res.status}. Retrying dispatch directly to Worker Gateway: ${directTarget}`);
-                const directRes = await fetch(`${directTarget.replace(/\/$/, '')}/send`, {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'x-service-key': 'toolnest_secure_service_token_2026',
-                    'x-user-id': effectiveUserId
-                  },
-                  body: JSON.stringify({ ...payload, userId: effectiveUserId })
-                });
-                if (directRes.ok) {
-                  res = directRes;
-                  data = await directRes.json().catch(() => ({}));
-                }
-              } catch (directErr) {
-                console.warn('Direct gateway retry error:', directErr);
-              }
-            } else if (res.status >= 500) {
-              console.log(`First send attempt encountered status ${res.status}, waiting 3.5s and retrying once...`);
-              await new Promise(r => setTimeout(r, 3500));
-              res = await fetch('/api/whatsapp-service/send', {
-                method: 'POST',
-                headers: requestHeaders,
-                body: JSON.stringify(payload)
-              });
-              data = await res.json().catch(() => ({}));
-            }
-          }
-
-          if (res.ok && data.success) {
-            sendSuccess = true;
-            msgId = data.messageId || '';
-          } else {
-            sendSuccess = false;
-            if (res.status === 413) {
-              failureReason = 'Media file is too large for cloud hosting (HTTP 413). Please re-attach the image so it is auto-compressed.';
-            } else {
-              failureReason = data.error || `HTTP ${res.status}: Delivery rejected`;
-            }
-          }
-        } catch (err: any) {
-          sendSuccess = false;
-          failureReason = err.message || 'Worker service communication error';
-        }
-      } else {
-        // Browser tab mode: open WhatsApp Web send tab
-        const url = WhatsAppSenderEngine.getDirectWhatsAppWebUrl(contact.phoneNumber, customizedText);
-        window.open(url, '_blank');
-        sendSuccess = true;
-      }
+      // Browser tab mode: open WhatsApp Web send tab
+      const url = WhatsAppSenderEngine.getDirectWhatsAppWebUrl(contact.phoneNumber, customizedText);
+      window.open(url, '_blank');
+      sendSuccess = true;
 
       contact.status = sendSuccess ? 'SENT' : 'FAILED';
       contact.sentAt = new Date().toISOString();
@@ -420,26 +427,64 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
     } catch (_) {}
   };
 
-  const handlePauseResume = () => {
-    if (isPaused) {
-      setIsPaused(false);
-      isPausedRef.current = false;
-    } else {
-      setIsPaused(true);
-      isPausedRef.current = true;
-    }
+  const handlePauseResume = async () => {
+    try {
+      const nextPaused = !isPaused;
+      setIsPaused(nextPaused);
+      isPausedRef.current = nextPaused;
+
+      const savedWorkerUrl = typeof window !== 'undefined' ? localStorage.getItem('toolnest_wa_worker_url') || '' : '';
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (savedWorkerUrl) headers['x-worker-url'] = savedWorkerUrl;
+
+      await fetch('/api/whatsapp-service/campaign', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ action: 'pause' })
+      }).catch(() => {});
+    } catch (_) {}
   };
 
-  const handleStop = () => {
+  const handleStop = async () => {
+    try {
+      await fetch('/api/whatsapp-marketing/campaign/stop', { method: 'POST' });
+    } catch (_) {}
     setIsRunning(false);
     setIsPaused(false);
     isRunningRef.current = false;
     isPausedRef.current = false;
   };
 
-  const resetAllStatuses = () => {
-    const reset = contacts.map(c => ({ ...c, status: 'PENDING' as const }));
-    onContactsUpdate(reset);
+  // Upgraded Reset: clears delivery history tracking and reverts contacts to PENDING without deleting customer records
+  const resetAllStatuses = async () => {
+    try {
+      // 1. Clear database delivered numbers and reset progress in MongoDB
+      await fetch('/api/whatsapp-marketing/campaign/reset', { method: 'POST' }).catch(() => {});
+
+      // 2. Clear local delivered numbers tracking so previously processed users can be sent to again
+      WhatsAppLimitManager.clearDeliveredNumbers(effectiveUserId);
+
+      // 3. Reset contact statuses to PENDING in state
+      const reset = contacts.map(c => ({
+        ...c,
+        status: 'PENDING' as const,
+        sentAt: undefined,
+        error: undefined
+      }));
+      onContactsUpdate(reset);
+
+      // 4. Reset component state
+      setCurrentIndex(0);
+      setIsRunning(false);
+      setIsPaused(false);
+      isRunningRef.current = false;
+      isPausedRef.current = false;
+    } catch (err) {
+      console.error('Reset error:', err);
+      WhatsAppLimitManager.clearDeliveredNumbers(effectiveUserId);
+      const reset = contacts.map(c => ({ ...c, status: 'PENDING' as const, sentAt: undefined, error: undefined }));
+      onContactsUpdate(reset);
+    }
   };
 
   return (

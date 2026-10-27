@@ -6,8 +6,6 @@ import { getSessionUser } from '@/lib/auth/session';
 export const dynamic = 'force-dynamic';
 
 import { PlanLimitsConfig, DEFAULT_PLAN_LIMITS } from '@/lib/whatsapp-web/limit-manager';
-export type { PlanLimitsConfig };
-export { DEFAULT_PLAN_LIMITS };
 
 const SETTING_KEY = 'planLimitsConfig';
 

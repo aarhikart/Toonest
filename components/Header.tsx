@@ -22,6 +22,7 @@ interface HeaderProps {
     username: string;
     businessName: string;
   } | null;
+  customLogoUrl?: string;
 }
 
 export function Header({
@@ -31,6 +32,7 @@ export function Header({
   hideBrowseTools = false,
   onToggleUserSidebar,
   user,
+  customLogoUrl,
 }: HeaderProps) {
   const [isDark, setIsDark] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -78,9 +80,15 @@ export function Header({
               href="/"
               className="flex items-center gap-2 group focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5722AF] rounded-lg"
             >
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#5722AF] to-[#7B45D1] flex items-center justify-center text-white shadow-xs shadow-[#5722AF]/25 group-hover:scale-[1.02] transition-transform">
-                <Layers className="w-4 h-4" />
-              </div>
+              {customLogoUrl ? (
+                <div className="w-8 h-8 rounded-xl overflow-hidden flex items-center justify-center shrink-0 group-hover:scale-[1.02] transition-transform">
+                  <img src={customLogoUrl} alt="Logo" className="w-full h-full object-contain" />
+                </div>
+              ) : (
+                <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#5722AF] to-[#7B45D1] flex items-center justify-center text-white shadow-xs shadow-[#5722AF]/25 group-hover:scale-[1.02] transition-transform">
+                  <Layers className="w-4 h-4" />
+                </div>
+              )}
               <span className="text-base font-extrabold tracking-tight text-zinc-900 dark:text-white">
                 ToolNest
               </span>

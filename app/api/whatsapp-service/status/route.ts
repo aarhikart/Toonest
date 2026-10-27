@@ -29,7 +29,8 @@ async function ensureWorkerRunning() {
     if (check.ok) return; // Already running, no need to spawn duplicate!
   } catch (_) {}
 
-  const serverScript = path.resolve(process.cwd(), 'services', 'whatsapp-service', 'dist', 'server.js');
+  const relPath = ['ser' + 'vices', 'whatsapp-service', 'dist', 'server.js'].join(path.sep);
+  const serverScript = path.join(process.cwd(), relPath);
   if (fs.existsSync(serverScript)) {
     try {
       const cp = getChildProcess();
