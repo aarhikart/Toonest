@@ -246,7 +246,8 @@ app.post('/send', verifySecret, async (req, res) => {
     }
 
     const sendOptions = {
-      sendTextSeparately: sendTextSeparately ?? options?.sendTextSeparately
+      sendTextSeparately: sendTextSeparately ?? options?.sendTextSeparately,
+      linkPreview: true
     };
 
     const result = await engine.sendMessage(to, text?.trim() || '', media, sendOptions);
@@ -431,7 +432,8 @@ app.post('/campaign/start', verifySecret, async (req, res) => {
       await new Promise(r => setTimeout(r, Math.max(1500, delayMs)));
 
       const result = await engine.sendMessage(contact.phoneNumber, renderedText, media, {
-        sendTextSeparately: sendTextSeparately === true
+        sendTextSeparately: sendTextSeparately === true,
+        linkPreview: true
       });
 
       if (result.success) {

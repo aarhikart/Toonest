@@ -8,19 +8,35 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: 'Image Bulk Rename Images — Fast, Private Bulk Image Renaming in Your Browser',
+  metadataBase: new URL('https://toonest.vercel.app'),
+  title: {
+    default: 'ToolNest — High-Speed WhatsApp Marketing, Tools & Automation Suite',
+    template: '%s | ToolNest',
+  },
   description:
-    'Rename hundreds of images in seconds directly in your browser. Complete privacy with 100% client-side file processing, custom patterns, live preview, duplicate protection, and instant ZIP download.',
+    'ToolNest provides ultra-fast WhatsApp Web marketing, auto-campaign delivery, media attachments, direct link previews, and free online productivity tools.',
   keywords: [
+    'whatsapp marketing',
+    'whatsapp web automation',
+    'bulk message sender',
+    'whatsapp tools',
+    'toolnest',
     'bulk image rename',
-    'image rename online',
-    'rename images in bulk',
-    'batch image rename',
-    'photo renamer',
-    'client side image rename',
-    'fast image rename',
+    'online tools',
   ],
   authors: [{ name: 'ToolNest' }],
+  openGraph: {
+    title: 'ToolNest — High-Speed WhatsApp Marketing & Online Tools Suite',
+    description: 'Send high-speed WhatsApp messages with rich clickable links, media attachments, and automated campaigns with ToolNest.',
+    url: 'https://toonest.vercel.app',
+    siteName: 'ToolNest',
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'ToolNest — WhatsApp Marketing & Online Tools',
+    description: 'Send high-speed WhatsApp messages with rich clickable links and automated campaigns.',
+  },
 };
 
 export default function RootLayout({

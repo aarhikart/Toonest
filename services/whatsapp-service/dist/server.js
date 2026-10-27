@@ -229,7 +229,8 @@ app.post('/send', verifySecret, async (req, res) => {
             };
         }
         const sendOptions = {
-            sendTextSeparately: sendTextSeparately ?? options?.sendTextSeparately
+            sendTextSeparately: sendTextSeparately ?? options?.sendTextSeparately,
+            linkPreview: true
         };
         const result = await engine.sendMessage(to, text?.trim() || '', media, sendOptions);
         res.status(result.success ? 200 : 400).json(result);
@@ -382,7 +383,8 @@ app.post('/campaign/start', verifySecret, async (req, res) => {
             const delayMs = (delaySeconds + (Math.random() * 1.5 - 0.75)) * 1000;
             await new Promise(r => setTimeout(r, Math.max(1500, delayMs)));
             const result = await engine.sendMessage(contact.phoneNumber, renderedText, media, {
-                sendTextSeparately: sendTextSeparately === true
+                sendTextSeparately: sendTextSeparately === true,
+                linkPreview: true
             });
             if (result.success) {
                 campaign.sentCount++;

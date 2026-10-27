@@ -1,6 +1,14 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  outputFileTracingExcludes: {
+    '*': [
+      'services/**',
+      'sessions/**',
+      '.wwebjs_auth/**',
+      '.wwebjs_cache/**',
+    ],
+  },
   serverExternalPackages: [
     'ffmpeg-static',
     'ffprobe-static',

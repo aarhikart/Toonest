@@ -270,10 +270,18 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
 
       if (dispatchMode === 'WORKER') {
         try {
-          // Exactly ONE message: media with caption or text template
+          // Format URLs with proper https:// scheme so WhatsApp recognises them as clickable links
+          const formattedText = WhatsAppSenderEngine.formatMessageUrls(customizedText);
+          const hasUrl = /https?:\/\/[^\s]+/i.test(formattedText);
+
           const payload: any = {
             to: contact.phoneNumber,
-            text: customizedText
+            text: formattedText,
+            sendTextSeparately: !!media && hasUrl,
+            options: {
+              linkPreview: true,
+              sendTextSeparately: !!media && hasUrl
+            }
           };
           if (media) {
             payload.mediaBase64 = media.dataUrl.split(',')[1];

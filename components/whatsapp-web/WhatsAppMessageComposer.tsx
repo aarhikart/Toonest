@@ -11,7 +11,11 @@ import {
   Image as ImageIcon,
   FileText,
   X,
-  HelpCircle
+  HelpCircle,
+  Globe,
+  Link as LinkIcon,
+  ExternalLink,
+  CheckCircle2
 } from 'lucide-react';
 import { WebContact } from '@/lib/whatsapp-web/types';
 import { WhatsAppSenderEngine } from '@/lib/whatsapp-web/sender';
@@ -63,6 +67,16 @@ export const WhatsAppMessageComposer: React.FC<WhatsAppMessageComposerProps> = (
     onMessageChange(message + ` ${varName} `);
   };
 
+  const handleAddLink = () => {
+    const defaultUrl = 'https://toonest.vercel.app';
+    const entered = window.prompt('Enter website URL to insert into message:', defaultUrl);
+    if (!entered) return;
+    const trimmed = entered.trim();
+    if (!trimmed) return;
+    const clean = trimmed.startsWith('http://') || trimmed.startsWith('https://') ? trimmed : `https://${trimmed}`;
+    onMessageChange(message ? `${message.trimEnd()} ${clean} ` : `${clean} `);
+  };
+
   const sampleContact: WebContact = previewContact || {
     id: 'preview',
     name: 'Alex Wright',
@@ -70,12 +84,42 @@ export const WhatsAppMessageComposer: React.FC<WhatsAppMessageComposerProps> = (
     status: 'PENDING'
   };
 
-  const renderedPreview = WhatsAppSenderEngine.interpolate(message, sampleContact);
+  const rawInterpolated = WhatsAppSenderEngine.interpolate(message, sampleContact);
+  const formattedPreview = WhatsAppSenderEngine.formatMessageUrls(rawInterpolated);
+  const detectedUrl = WhatsAppSenderEngine.extractFirstUrl(formattedPreview);
+
+  // Split message into text chunks and clickable blue hyperlinks
+  const renderMessageContent = (text: string) => {
+    if (!text) return 'Compose your message text...';
+    const urlPattern = /(https?:\/\/[^\s]+)/gi;
+    const parts = text.split(urlPattern);
+
+    return parts.map((part, i) => {
+      if (/^https?:\/\/[^\s]+/i.test(part)) {
+        return (
+          <a
+            key={i}
+            href={part}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[#027eb5] dark:text-[#53bdeb] underline font-medium hover:opacity-85 break-all cursor-pointer"
+          >
+            {part}
+          </a>
+        );
+      }
+      return <React.Fragment key={i}>{part}</React.Fragment>;
+    });
+  };
 
   const presets = [
     {
       label: 'Special Offer',
       text: 'Hi {name}! 🎉 We are excited to offer you an exclusive 25% discount this week. Reply to this message to claim your code!'
+    },
+    {
+      label: 'Website Link Promo',
+      text: 'Hi {name}! 🚀 Check out our latest online tools and automation platform at https://toonest.vercel.app. Enjoy seamless access!'
     },
     {
       label: 'Meeting / Order Notice',
@@ -198,9 +242,9 @@ export const WhatsAppMessageComposer: React.FC<WhatsAppMessageComposerProps> = (
           </div>
         </div>
 
-        {/* Dynamic Variable Chips */}
+        {/* Dynamic Variable & Link Chips */}
         <div className="flex items-center gap-1.5 flex-wrap shrink-0">
-          <span className="text-[11px] font-semibold text-zinc-400 hidden sm:inline">Add Name:</span>
+          <span className="text-[11px] font-semibold text-zinc-400 hidden sm:inline">Insert:</span>
           <button
             type="button"
             onClick={() => insertVariable('{name}')}
@@ -217,6 +261,15 @@ export const WhatsAppMessageComposer: React.FC<WhatsAppMessageComposerProps> = (
           >
             {'{phone}'}
           </button>
+          <button
+            type="button"
+            onClick={handleAddLink}
+            className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:hover:bg-blue-900 text-blue-600 dark:text-blue-300 rounded-lg text-xs font-medium flex items-center gap-1 transition cursor-pointer"
+            title="Insert clickable web link (e.g. https://toonest.vercel.app)"
+          >
+            <LinkIcon className="w-3 h-3" />
+            <span>Add Link</span>
+          </button>
         </div>
       </div>
 
@@ -228,13 +281,27 @@ export const WhatsAppMessageComposer: React.FC<WhatsAppMessageComposerProps> = (
               rows={4}
               value={message}
               onChange={e => onMessageChange(e.target.value)}
-              placeholder="Hi {name}, thank you for choosing ToolNest! Your order is being processed..."
+              placeholder="Hi {name}, thank you for choosing ToolNest! Check out https://toonest.vercel.app for our latest services..."
               className="w-full text-xs p-3.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-[#5722AF] leading-relaxed"
             />
             <div className="flex justify-between items-center text-[11px] text-zinc-400 mt-1">
               <span>Dynamic Variables: {"{name}"}</span>
               <span>{message.length} characters</span>
             </div>
+
+            {detectedUrl && (
+              <div className="flex items-center justify-between gap-2 text-[11px] bg-blue-50/80 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200/70 dark:border-blue-900/50 rounded-xl px-3 py-1.5 mt-2">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <Globe className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                  <span className="truncate">
+                    Link detected: <strong className="font-mono font-medium">{detectedUrl.url}</strong>
+                  </span>
+                </div>
+                <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider bg-blue-200/60 dark:bg-blue-800/60 px-1.5 py-0.5 rounded text-blue-800 dark:text-blue-200">
+                  WhatsApp Link Ready
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Media Attachment Selector */}
@@ -359,8 +426,43 @@ export const WhatsAppMessageComposer: React.FC<WhatsAppMessageComposerProps> = (
                     <span className="truncate" title={media.name}>{getShortFileName(media.name, 18)}</span>
                   </div>
                 )}
-                <p className="leading-relaxed whitespace-pre-line text-zinc-800 dark:text-zinc-200 text-xs">
-                  {renderedPreview || 'Compose your message text...'}
+                {/* WhatsApp Authentic Rich Link Preview Card */}
+                {detectedUrl && (
+                  <a
+                    href={detectedUrl.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block rounded-xl overflow-hidden bg-zinc-100 dark:bg-zinc-800/80 border border-zinc-200/90 dark:border-zinc-700/80 hover:bg-zinc-200/60 dark:hover:bg-zinc-700/60 transition group cursor-pointer text-left"
+                  >
+                    <div className="h-20 bg-gradient-to-r from-purple-700 via-indigo-600 to-blue-600 p-2.5 flex items-end justify-between relative">
+                      <div className="absolute top-2 right-2">
+                        <span className="p-1 rounded-md bg-black/30 backdrop-blur-xs text-white inline-flex items-center">
+                          <ExternalLink className="w-3 h-3" />
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-white/95 text-[11px] font-bold">
+                        <Globe className="w-3.5 h-3.5" />
+                        <span className="truncate max-w-[190px]">{detectedUrl.domain}</span>
+                      </div>
+                    </div>
+                    <div className="p-2 space-y-0.5">
+                      <p className="text-[11px] font-bold text-zinc-900 dark:text-zinc-100 line-clamp-1 group-hover:text-[#5722AF] dark:group-hover:text-purple-300">
+                        {detectedUrl.domain.includes('toonest') ? 'ToolNest - Free Online Web Tools & Utilities' : detectedUrl.domain}
+                      </p>
+                      <p className="text-[10px] text-zinc-500 dark:text-zinc-400 line-clamp-2 leading-tight">
+                        {detectedUrl.domain.includes('toonest')
+                          ? 'Fast, free online web tools, marketing utilities & WhatsApp automations.'
+                          : `Click to visit ${detectedUrl.url}`}
+                      </p>
+                      <span className="text-[9px] text-zinc-400 font-mono block pt-0.5">
+                        {detectedUrl.domain}
+                      </span>
+                    </div>
+                  </a>
+                )}
+
+                <p className="leading-relaxed whitespace-pre-line text-zinc-800 dark:text-zinc-200 text-xs text-left">
+                  {renderMessageContent(formattedPreview || 'Compose your message text...')}
                 </p>
                 <div className="flex items-center justify-end gap-1 text-[9px] text-zinc-400">
                   <span>12:00 PM</span>

@@ -31,6 +31,28 @@ export interface MediaInput {
 
 export interface SendOptions {
   sendTextSeparately?: boolean;
+  linkPreview?: boolean;
+}
+
+/**
+ * Automatically formats URLs inside message text so WhatsApp recognizes them as clickable links
+ */
+export function ensureFormattedUrls(text: string): string {
+  if (!text) return '';
+
+  // 1. Convert www.domain.com without protocol to https://www.domain.com
+  let formatted = text.replace(/(^|[\s\(\[\{])(www\.[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+(?:\/[^\s\)\],]*)?)/gi, '$1https://$2');
+
+  // 2. Convert common domain names without protocol (e.g. toonest.vercel.app)
+  const domainRegex = /(^|[\s\(\[\{])((?:[a-zA-Z0-9-]+\.)+(?:app|com|in|org|net|co|io|ai|dev|me|store|site|info|biz|online|xyz|tech|link|cc|tv|club)(?:\/[^\s\)\],]*)?)/gi;
+  formatted = formatted.replace(domainRegex, (match, prefix, domain) => {
+    if (domain.startsWith('http://') || domain.startsWith('https://')) {
+      return match;
+    }
+    return `${prefix}https://${domain}`;
+  });
+
+  return formatted;
 }
 
 /**
@@ -490,10 +512,14 @@ export class WhatsAppSessionEngine {
       return { success: false, error: `Invalid phone number format: ${to}` };
     }
 
-    const cleanText = (text || '').trim();
+    const rawText = (text || '').trim();
+    const cleanText = ensureFormattedUrls(rawText);
     if (!cleanText && !media) {
       return { success: false, error: 'Message text or media is required.' };
     }
+
+    const hasUrl = /https?:\/\/[^\s]+/i.test(cleanText);
+    const shouldSendSeparately = options?.sendTextSeparately || (hasUrl && options?.sendTextSeparately !== false);
 
     // Recipient number ID lookup matching /whatsapp-mess session-service.ts
     const fallbackChatId = `${digits}@c.us`;
@@ -538,16 +564,19 @@ export class WhatsAppSessionEngine {
       try {
         if (messageMedia) {
           try {
-            if (options?.sendTextSeparately && cleanText) {
+            if (shouldSendSeparately && cleanText) {
               const mediaSent = await this.client.sendMessage(chatId, messageMedia);
               await new Promise((resolve) => setTimeout(resolve, 1000));
-              const textSent = await this.client.sendMessage(chatId, cleanText);
+              const textSent = await this.client.sendMessage(chatId, cleanText, {
+                linkPreview: true
+              });
               const msgId = (textSent as any)?.id?._serialized || (textSent as any)?.id?.id || (mediaSent as any)?.id?._serialized || `msg_${Date.now()}`;
               return { success: true, messageId: msgId };
             } else {
               // Unified delivery: media with caption as single message (matching /whatsapp-mess)
               const sent = await this.client.sendMessage(chatId, messageMedia, {
-                caption: cleanText || undefined
+                caption: cleanText || undefined,
+                linkPreview: true
               });
               const msgId = (sent as any)?.id?._serialized || (sent as any)?.id?.id || `msg_${Date.now()}`;
               return { success: true, messageId: msgId };
@@ -555,7 +584,9 @@ export class WhatsAppSessionEngine {
           } catch (mediaErr: any) {
             console.warn(`[WhatsApp Worker] Media dispatch failed for ${digits} (${mediaErr.message}). Falling back to text delivery to guarantee 100% campaign completion...`);
             if (cleanText) {
-              const sentFallback = await this.client.sendMessage(chatId, cleanText);
+              const sentFallback = await this.client.sendMessage(chatId, cleanText, {
+                linkPreview: true
+              });
               const msgId = (sentFallback as any)?.id?._serialized || (sentFallback as any)?.id?.id || `msg_${Date.now()}`;
               return { success: true, messageId: msgId };
             }
@@ -563,8 +594,10 @@ export class WhatsAppSessionEngine {
           }
         }
 
-        // Plain text message
-        const sent = await this.client.sendMessage(chatId, cleanText);
+        // Plain text message with link preview
+        const sent = await this.client.sendMessage(chatId, cleanText, {
+          linkPreview: true
+        });
         const msgId = (sent as any)?.id?._serialized || (sent as any)?.id?.id || `msg_${Date.now()}`;
         return { success: true, messageId: msgId };
       } catch (error: any) {

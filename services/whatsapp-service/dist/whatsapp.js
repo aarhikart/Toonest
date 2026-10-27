@@ -4,12 +4,31 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.MultiSessionManager = exports.WhatsAppSessionEngine = void 0;
+exports.ensureFormattedUrls = ensureFormattedUrls;
 exports.normalizePhoneNumber = normalizePhoneNumber;
 const whatsapp_web_js_1 = require("whatsapp-web.js");
 const qrcode_1 = __importDefault(require("qrcode"));
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const child_process_1 = require("child_process");
+/**
+ * Automatically formats URLs inside message text so WhatsApp recognizes them as clickable links
+ */
+function ensureFormattedUrls(text) {
+    if (!text)
+        return '';
+    // 1. Convert www.domain.com without protocol to https://www.domain.com
+    let formatted = text.replace(/(^|[\s\(\[\{])(www\.[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+(?:\/[^\s\)\],]*)?)/gi, '$1https://$2');
+    // 2. Convert common domain names without protocol (e.g. toonest.vercel.app)
+    const domainRegex = /(^|[\s\(\[\{])((?:[a-zA-Z0-9-]+\.)+(?:app|com|in|org|net|co|io|ai|dev|me|store|site|info|biz|online|xyz|tech|link|cc|tv|club)(?:\/[^\s\)\],]*)?)/gi;
+    formatted = formatted.replace(domainRegex, (match, prefix, domain) => {
+        if (domain.startsWith('http://') || domain.startsWith('https://')) {
+            return match;
+        }
+        return `${prefix}https://${domain}`;
+    });
+    return formatted;
+}
 /**
  * Intelligent phone number normalizer matching /whatsapp-mess
  */
@@ -415,10 +434,13 @@ class WhatsAppSessionEngine {
         if (!digits || digits.length < 10 || digits.length > 15) {
             return { success: false, error: `Invalid phone number format: ${to}` };
         }
-        const cleanText = (text || '').trim();
+        const rawText = (text || '').trim();
+        const cleanText = ensureFormattedUrls(rawText);
         if (!cleanText && !media) {
             return { success: false, error: 'Message text or media is required.' };
         }
+        const hasUrl = /https?:\/\/[^\s]+/i.test(cleanText);
+        const shouldSendSeparately = options?.sendTextSeparately || (hasUrl && options?.sendTextSeparately !== false);
         // Recipient number ID lookup matching /whatsapp-mess session-service.ts
         const fallbackChatId = `${digits}@c.us`;
         let chatId = fallbackChatId;
@@ -456,17 +478,20 @@ class WhatsAppSessionEngine {
             try {
                 if (messageMedia) {
                     try {
-                        if (options?.sendTextSeparately && cleanText) {
+                        if (shouldSendSeparately && cleanText) {
                             const mediaSent = await this.client.sendMessage(chatId, messageMedia);
                             await new Promise((resolve) => setTimeout(resolve, 1000));
-                            const textSent = await this.client.sendMessage(chatId, cleanText);
+                            const textSent = await this.client.sendMessage(chatId, cleanText, {
+                                linkPreview: true
+                            });
                             const msgId = textSent?.id?._serialized || textSent?.id?.id || mediaSent?.id?._serialized || `msg_${Date.now()}`;
                             return { success: true, messageId: msgId };
                         }
                         else {
                             // Unified delivery: media with caption as single message (matching /whatsapp-mess)
                             const sent = await this.client.sendMessage(chatId, messageMedia, {
-                                caption: cleanText || undefined
+                                caption: cleanText || undefined,
+                                linkPreview: true
                             });
                             const msgId = sent?.id?._serialized || sent?.id?.id || `msg_${Date.now()}`;
                             return { success: true, messageId: msgId };
@@ -475,15 +500,19 @@ class WhatsAppSessionEngine {
                     catch (mediaErr) {
                         console.warn(`[WhatsApp Worker] Media dispatch failed for ${digits} (${mediaErr.message}). Falling back to text delivery to guarantee 100% campaign completion...`);
                         if (cleanText) {
-                            const sentFallback = await this.client.sendMessage(chatId, cleanText);
+                            const sentFallback = await this.client.sendMessage(chatId, cleanText, {
+                                linkPreview: true
+                            });
                             const msgId = sentFallback?.id?._serialized || sentFallback?.id?.id || `msg_${Date.now()}`;
                             return { success: true, messageId: msgId };
                         }
                         throw mediaErr;
                     }
                 }
-                // Plain text message
-                const sent = await this.client.sendMessage(chatId, cleanText);
+                // Plain text message with link preview
+                const sent = await this.client.sendMessage(chatId, cleanText, {
+                    linkPreview: true
+                });
                 const msgId = sent?.id?._serialized || sent?.id?.id || `msg_${Date.now()}`;
                 return { success: true, messageId: msgId };
             }

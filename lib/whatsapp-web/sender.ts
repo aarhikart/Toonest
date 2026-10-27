@@ -44,11 +44,63 @@ export class WhatsAppSenderEngine {
   }
 
   /**
+   * Automatically formats URLs inside message text so WhatsApp recognizes them as clickable links
+   * 1. Adds https:// to standalone domains (e.g. toonest.vercel.app -> https://toonest.vercel.app)
+   * 2. Ensures URLs have proper whitespace separation so they are not merged with adjoining punctuation
+   */
+  static formatMessageUrls(text: string): string {
+    if (!text) return '';
+
+    // Convert www.domain.com without protocol to https://www.domain.com
+    let formatted = text.replace(/(^|[\s\(\[\{])(www\.[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+(?:\/[^\s\)\],]*)?)/gi, '$1https://$2');
+
+    // Convert common domain names without protocol (e.g., toonest.vercel.app)
+    const domainRegex = /(^|[\s\(\[\{])((?:[a-zA-Z0-9-]+\.)+(?:app|com|in|org|net|co|io|ai|dev|me|store|site|info|biz|online|xyz|tech|link|cc|tv|club)(?:\/[^\s\)\],]*)?)/gi;
+    formatted = formatted.replace(domainRegex, (match, prefix, domain) => {
+      if (domain.startsWith('http://') || domain.startsWith('https://')) {
+        return match;
+      }
+      return `${prefix}https://${domain}`;
+    });
+
+    // Ensure whitespace before https?:// if immediately attached to a word or punctuation like : or ,
+    formatted = formatted.replace(/([^\s\(\[\{<])(https?:\/\/)/gi, '$1 $2');
+
+    return formatted;
+  }
+
+  /**
+   * Extract the first valid URL from message text (if any)
+   */
+  static extractFirstUrl(text: string): { url: string; domain: string } | null {
+    if (!text) return null;
+    const formatted = this.formatMessageUrls(text);
+    const match = formatted.match(/https?:\/\/[^\s\)\],]+/i);
+    if (!match) return null;
+    const rawUrl = match[0];
+    try {
+      const parsed = new URL(rawUrl);
+      return { url: rawUrl, domain: parsed.hostname };
+    } catch {
+      return { url: rawUrl, domain: rawUrl.replace(/^https?:\/\//i, '').split('/')[0] };
+    }
+  }
+
+  /**
+   * Check if text contains any URL (either full https:// or naked domain)
+   */
+  static hasUrl(text: string): boolean {
+    if (!text) return false;
+    return !!this.extractFirstUrl(text);
+  }
+
+  /**
    * Generates direct WhatsApp Web URL for 1-click manual / fallback sending
    */
   static getDirectWhatsAppWebUrl(phone: string, text: string): string {
     const cleanDigits = phone.replace(/[^0-9]/g, '');
-    return `https://web.whatsapp.com/send?phone=${cleanDigits}&text=${encodeURIComponent(text)}`;
+    const formattedText = this.formatMessageUrls(text);
+    return `https://web.whatsapp.com/send?phone=${cleanDigits}&text=${encodeURIComponent(formattedText)}`;
   }
 
   /**
