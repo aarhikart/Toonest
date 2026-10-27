@@ -141,7 +141,13 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
 
     const pollStatus = async () => {
       try {
-        const res = await fetch('/api/whatsapp-marketing/campaign/status');
+        const savedWorkerUrl = typeof window !== 'undefined' ? localStorage.getItem('toolnest_wa_worker_url') || '' : '';
+        const res = await fetch('/api/whatsapp-marketing/campaign/status', {
+          headers: {
+            'x-user-id': effectiveUserId,
+            ...(savedWorkerUrl ? { 'x-worker-url': savedWorkerUrl } : {})
+          }
+        });
         const data = await res.json();
         if (!isMounted || !data.success) return;
 
@@ -254,18 +260,21 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
     if (dispatchMode === 'WORKER') {
       try {
         const savedWorkerUrl = typeof window !== 'undefined' ? localStorage.getItem('toolnest_wa_worker_url') || '' : '';
+        const hasUrl = /https?:\/\/[^\s]+/i.test(messageTemplate);
         const res = await fetch('/api/whatsapp-marketing/campaign/start', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'x-user-id': effectiveUserId,
             ...(savedWorkerUrl ? { 'x-worker-url': savedWorkerUrl } : {})
           },
           body: JSON.stringify({
+            userId: effectiveUserId,
             contacts: currentList,
             template: messageTemplate,
             delaySeconds: Math.max(7, Math.min(60, delaySeconds || 7)),
             media,
-            sendTextSeparately: true
+            sendTextSeparately: !!media && hasUrl
           })
         });
 
@@ -280,7 +289,10 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
         // Trigger immediate status poll to catch initial campaign progress
         try {
           const statusRes = await fetch('/api/whatsapp-marketing/campaign/status', {
-            headers: savedWorkerUrl ? { 'x-worker-url': savedWorkerUrl } : {}
+            headers: {
+              'x-user-id': effectiveUserId,
+              ...(savedWorkerUrl ? { 'x-worker-url': savedWorkerUrl } : {})
+            }
           });
           if (statusRes.ok) {
             const statusData = await statusRes.json();
@@ -434,20 +446,34 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
       isPausedRef.current = nextPaused;
 
       const savedWorkerUrl = typeof window !== 'undefined' ? localStorage.getItem('toolnest_wa_worker_url') || '' : '';
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'x-user-id': effectiveUserId
+      };
       if (savedWorkerUrl) headers['x-worker-url'] = savedWorkerUrl;
 
-      await fetch('/api/whatsapp-service/campaign', {
+      await fetch('/api/whatsapp-marketing/campaign/pause', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ action: 'pause' })
+        body: JSON.stringify({ userId: effectiveUserId, action: 'pause' })
       }).catch(() => {});
     } catch (_) {}
   };
 
   const handleStop = async () => {
     try {
-      await fetch('/api/whatsapp-marketing/campaign/stop', { method: 'POST' });
+      const savedWorkerUrl = typeof window !== 'undefined' ? localStorage.getItem('toolnest_wa_worker_url') || '' : '';
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'x-user-id': effectiveUserId
+      };
+      if (savedWorkerUrl) headers['x-worker-url'] = savedWorkerUrl;
+
+      await fetch('/api/whatsapp-marketing/campaign/stop', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ userId: effectiveUserId })
+      }).catch(() => {});
     } catch (_) {}
     setIsRunning(false);
     setIsPaused(false);
@@ -459,7 +485,18 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
   const resetAllStatuses = async () => {
     try {
       // 1. Clear database delivered numbers and reset progress in MongoDB
-      await fetch('/api/whatsapp-marketing/campaign/reset', { method: 'POST' }).catch(() => {});
+      const savedWorkerUrl = typeof window !== 'undefined' ? localStorage.getItem('toolnest_wa_worker_url') || '' : '';
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'x-user-id': effectiveUserId
+      };
+      if (savedWorkerUrl) headers['x-worker-url'] = savedWorkerUrl;
+
+      await fetch('/api/whatsapp-marketing/campaign/reset', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ userId: effectiveUserId })
+      }).catch(() => {});
 
       // 2. Clear local delivered numbers tracking so previously processed users can be sent to again
       WhatsAppLimitManager.clearDeliveredNumbers(effectiveUserId);

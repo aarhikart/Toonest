@@ -7,7 +7,10 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
-    const userId = getWorkerUserId(req);
+    const body = await req.json().catch(() => ({}));
+    const userId = (body?.userId && typeof body.userId === 'string' && body.userId.trim() !== 'default')
+      ? body.userId.trim().toLowerCase()
+      : getWorkerUserId(req);
     await connectToDatabase();
 
     // 1. Tell worker to stop

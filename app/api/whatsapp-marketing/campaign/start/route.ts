@@ -9,8 +9,10 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
-    const userId = getWorkerUserId(req);
     const body = await req.json();
+    const userId = (body?.userId && typeof body.userId === 'string' && body.userId.trim() !== 'default')
+      ? body.userId.trim().toLowerCase()
+      : getWorkerUserId(req);
     const { contacts, template, delaySeconds = 7, media, sendTextSeparately } = body;
 
     if (!Array.isArray(contacts) || contacts.length === 0) {
@@ -108,13 +110,16 @@ export async function POST(req: NextRequest) {
     // Prepare media for worker
     let mediaPayload: any = null;
     if (media && media.dataUrl) {
+      const cleanBase64 = media.dataUrl.includes(',') ? media.dataUrl.split(',')[1] : media.dataUrl;
       mediaPayload = {
-        mediaBase64: media.dataUrl.split(',')[1] || media.dataUrl,
+        mediaBase64: (cleanBase64 || '').trim().replace(/[\r\n\s]/g, ''),
         mediaMimeType: media.type,
         fileName: media.name,
         isImage: media.isImage
       };
     }
+
+    const hasUrl = /https?:\/\/[^\s]+/i.test(template || '');
 
     // Dispatch campaign to persistent worker
     const serviceUrl = await getWhatsAppServiceUrl(req);
@@ -125,7 +130,7 @@ export async function POST(req: NextRequest) {
       contacts,
       template: WhatsAppSenderEngine.formatMessageUrls(template || ''),
       delaySeconds: Math.max(7, Math.min(60, Number(delaySeconds) || 7)),
-      sendTextSeparately: sendTextSeparately ?? true,
+      sendTextSeparately: sendTextSeparately ?? (!!media && hasUrl),
       ...(mediaPayload || {})
     };
 
@@ -141,7 +146,12 @@ export async function POST(req: NextRequest) {
       }
     } catch (workerErr: any) {
       console.warn('[Campaign Start Worker Warning]:', workerErr.message);
-      // Even if worker gateway returned warning, progress is saved in MongoDB and can be retried
+      if (workerErr.message && workerErr.message.toLowerCase().includes('not connected')) {
+        return NextResponse.json(
+          { success: false, error: workerErr.message },
+          { status: 400 }
+        );
+      }
     }
 
     return NextResponse.json({

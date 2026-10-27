@@ -215,15 +215,24 @@ app.post('/restart', verifySecret, async (req, res) => {
 });
 
 // 4. Send Direct Message from specific tenant account
+// 4. Send Direct Message from specific tenant account
 app.post('/send', verifySecret, async (req, res) => {
   try {
     const userId = getUserId(req);
-    const engine = sessionManager.getSession(userId, true);
+    let engine = sessionManager.getSession(userId, true);
+
+    // If requested tenant session is not connected, fallback to ANY active connected session on the worker
+    if (!engine || !engine.getStatus().isConnected || !engine.getClient()) {
+      const activeSession = sessionManager.getActiveConnectedSession();
+      if (activeSession) {
+        engine = activeSession;
+      }
+    }
 
     if (!engine || !engine.getStatus().isConnected || !engine.getClient()) {
       return res.status(400).json({
         success: false,
-        error: `WhatsApp account for tenant "${userId}" is not connected. Please connect WhatsApp in Step 1.`
+        error: `WhatsApp account is not connected. Please connect WhatsApp in Step 1.`
       });
     }
 
@@ -237,16 +246,29 @@ app.post('/send', verifySecret, async (req, res) => {
 
     let media;
     if (mediaBase64 && mediaMimeType) {
+      const cleanBase64 = typeof mediaBase64 === 'string'
+        ? mediaBase64.replace(/^data:[^;]+;base64,/, '').trim().replace(/[\r\n\s]/g, '')
+        : '';
+      let safeFileName = (fileName || 'image').trim();
+      if (!safeFileName.includes('.')) {
+        const ext = mediaMimeType === 'image/png' ? '.png'
+          : mediaMimeType === 'image/webp' ? '.webp'
+          : mediaMimeType === 'application/pdf' ? '.pdf'
+          : '.jpg';
+        safeFileName = `${safeFileName}${ext}`;
+      }
       media = {
-        buffer: Buffer.from(mediaBase64, 'base64'),
+        base64: cleanBase64,
+        buffer: Buffer.from(cleanBase64, 'base64'),
         mimetype: mediaMimeType,
-        fileName,
+        fileName: safeFileName,
         isImage: isImage ?? mediaMimeType.startsWith('image/')
       };
     }
 
+    const hasUrl = /https?:\/\/[^\s]+/i.test(text || '');
     const sendOptions = {
-      sendTextSeparately: sendTextSeparately ?? options?.sendTextSeparately,
+      sendTextSeparately: sendTextSeparately === true || (hasUrl && sendTextSeparately !== false),
       linkPreview: true
     };
 
@@ -376,9 +398,15 @@ function getOrCreateCampaign(userId: string): CampaignState {
 // Start Background Campaign for specific tenant
 app.post('/campaign/start', verifySecret, async (req, res) => {
   const userId = getUserId(req);
-  const engine = sessionManager.getSession(userId, true);
+  let engine = sessionManager.getSession(userId, true);
   if (!engine || !engine.getStatus().isConnected || !engine.getClient()) {
-    return res.status(400).json({ error: `WhatsApp client for tenant "${userId}" is not connected. Please scan QR code in Step 1.` });
+    const active = sessionManager.getActiveConnectedSession();
+    if (active) {
+      engine = active;
+    }
+  }
+  if (!engine || !engine.getStatus().isConnected || !engine.getClient()) {
+    return res.status(400).json({ error: `WhatsApp client is not connected. Please scan QR code in Step 1.` });
   }
 
   const { contacts, template, delaySeconds = 7, mediaBase64, mediaMimeType, fileName, isImage, sendTextSeparately } = req.body;
@@ -401,10 +429,22 @@ app.post('/campaign/start', verifySecret, async (req, res) => {
   (async () => {
     let media;
     if (mediaBase64 && mediaMimeType) {
+      const cleanBase64 = typeof mediaBase64 === 'string'
+        ? mediaBase64.replace(/^data:[^;]+;base64,/, '').trim().replace(/[\r\n\s]/g, '')
+        : '';
+      let safeFileName = (fileName || 'image').trim();
+      if (!safeFileName.includes('.')) {
+        const ext = mediaMimeType === 'image/png' ? '.png'
+          : mediaMimeType === 'image/webp' ? '.webp'
+          : mediaMimeType === 'application/pdf' ? '.pdf'
+          : '.jpg';
+        safeFileName = `${safeFileName}${ext}`;
+      }
       media = {
-        buffer: Buffer.from(mediaBase64, 'base64'),
+        base64: cleanBase64,
+        buffer: Buffer.from(cleanBase64, 'base64'),
         mimetype: mediaMimeType,
-        fileName,
+        fileName: safeFileName,
         isImage: isImage ?? mediaMimeType.startsWith('image/')
       };
     }
@@ -449,9 +489,12 @@ app.post('/campaign/start', verifySecret, async (req, res) => {
         .replace(/(\{\{\s*(?:phone|number|mobile)\s*\}\}|\{\s*(?:phone|number|mobile)\s*\}|\[\s*(?:phone|number|mobile)\s*\]|\{\{\s*2\s*\}\}|\{\s*2\s*\})/gi, phone)
         .replace(/(\{\{\s*random\s*\}\}|\{\s*random\s*\})/gi, Math.random().toString(36).substring(2, 7).toUpperCase());
 
+      const hasUrl = /https?:\/\/[^\s]+/i.test(renderedText);
+      const shouldSendSeparately = sendTextSeparately === true || (hasUrl && sendTextSeparately !== false);
+
       // Attempt sending with 1 retry on transient failure
       let result = await engine.sendMessage(contact.phoneNumber, renderedText, media, {
-        sendTextSeparately: sendTextSeparately === true,
+        sendTextSeparately: shouldSendSeparately,
         linkPreview: true
       });
 
@@ -459,7 +502,7 @@ app.post('/campaign/start', verifySecret, async (req, res) => {
         // Wait 2s and retry once
         await new Promise(r => setTimeout(r, 2000));
         result = await engine.sendMessage(contact.phoneNumber, renderedText, media, {
-          sendTextSeparately: sendTextSeparately === true,
+          sendTextSeparately: shouldSendSeparately,
           linkPreview: true
         });
       }

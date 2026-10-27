@@ -544,17 +544,29 @@ export class WhatsAppSessionEngine {
     let messageMedia: MessageMedia | null = null;
     if (media) {
       let base64Data = '';
-      if (media.buffer) {
+      if (typeof media.base64 === 'string') {
+        base64Data = media.base64;
+      } else if (media.buffer && Buffer.isBuffer(media.buffer)) {
         base64Data = media.buffer.toString('base64');
-      } else if (media.base64) {
-        base64Data = media.base64.split(',')[1] || media.base64;
       }
+      base64Data = (base64Data || '')
+        .replace(/^data:[^;]+;base64,/, '')
+        .trim()
+        .replace(/[\r\n\s]/g, '');
 
       if (base64Data) {
+        let fileName = (media.fileName || 'image').trim();
+        if (!fileName.includes('.')) {
+          const ext = media.mimetype === 'image/png' ? '.png'
+            : media.mimetype === 'image/webp' ? '.webp'
+            : media.mimetype === 'application/pdf' ? '.pdf'
+            : '.jpg';
+          fileName = `${fileName}${ext}`;
+        }
         messageMedia = new MessageMedia(
-          media.mimetype,
+          media.mimetype || 'image/jpeg',
           base64Data,
-          media.fileName || 'attachment'
+          fileName
         );
       }
     }
@@ -573,22 +585,23 @@ export class WhatsAppSessionEngine {
               const msgId = (textSent as any)?.id?._serialized || (textSent as any)?.id?.id || (mediaSent as any)?.id?._serialized || `msg_${Date.now()}`;
               return { success: true, messageId: msgId };
             } else {
-              // Unified delivery: media with caption as single message (matching /whatsapp-mess)
+              // Unified delivery: media with caption as single message (matching standard WhatsApp media message)
               const sent = await this.client.sendMessage(chatId, messageMedia, {
-                caption: cleanText || undefined,
-                linkPreview: true
+                caption: cleanText || undefined
               });
               const msgId = (sent as any)?.id?._serialized || (sent as any)?.id?.id || `msg_${Date.now()}`;
               return { success: true, messageId: msgId };
             }
           } catch (mediaErr: any) {
-            console.warn(`[WhatsApp Worker] Media dispatch failed for ${digits} (${mediaErr.message}). Falling back to text delivery to guarantee 100% campaign completion...`);
+            console.warn(`[WhatsApp Worker] Media dispatch failed for ${digits}:`, mediaErr?.message || mediaErr);
             if (cleanText) {
-              const sentFallback = await this.client.sendMessage(chatId, cleanText, {
-                linkPreview: true
-              });
-              const msgId = (sentFallback as any)?.id?._serialized || (sentFallback as any)?.id?.id || `msg_${Date.now()}`;
-              return { success: true, messageId: msgId };
+              try {
+                const sentFallback = await this.client.sendMessage(chatId, cleanText, {
+                  linkPreview: true
+                });
+                const msgId = (sentFallback as any)?.id?._serialized || (sentFallback as any)?.id?.id || `msg_${Date.now()}`;
+                return { success: true, messageId: msgId };
+              } catch (_) {}
             }
             throw mediaErr;
           }
