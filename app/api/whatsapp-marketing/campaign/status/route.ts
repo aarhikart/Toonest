@@ -58,7 +58,7 @@ export async function GET(req: NextRequest) {
         );
       }
 
-      if (Array.isArray(workerStatus.logs) && workerStatus.logs.length > 0) {
+      if (Array.isArray(workerStatus.logs)) {
         updateData.logs = workerStatus.logs;
       }
 

@@ -14,7 +14,8 @@ import {
   HelpCircle,
   Globe,
   ExternalLink,
-  CheckCircle2
+  CheckCircle2,
+  AlertCircle
 } from 'lucide-react';
 import { WebContact } from '@/lib/whatsapp-web/types';
 import { WhatsAppSenderEngine } from '@/lib/whatsapp-web/sender';
@@ -300,34 +301,41 @@ export const WhatsAppMessageComposer: React.FC<WhatsAppMessageComposerProps> = (
               Attach Image or PDF Document (Optional)
             </button>
           ) : (
-            <div className="p-2.5 sm:p-3 bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800/50 rounded-xl flex items-center justify-between gap-2.5 min-w-0">
-              <div className="flex items-center gap-2.5 min-w-0 flex-1 overflow-hidden">
-                {media.isImage ? (
-                  <img src={media.dataUrl} alt="Preview" className="w-10 h-10 object-cover rounded-lg border border-purple-200 shrink-0" />
-                ) : (
-                  <div className="w-10 h-10 rounded-lg bg-red-100 dark:bg-red-950 text-red-600 flex items-center justify-center font-bold text-xs shrink-0">
-                    PDF
+            <div className="space-y-2">
+              <div className="p-2.5 sm:p-3 bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800/50 rounded-xl flex items-center justify-between gap-2.5 min-w-0">
+                <div className="flex items-center gap-2.5 min-w-0 flex-1 overflow-hidden">
+                  {media.isImage ? (
+                    <img src={media.dataUrl} alt="Preview" className="w-10 h-10 object-cover rounded-lg border border-purple-200 shrink-0" />
+                  ) : (
+                    <div className="w-10 h-10 rounded-lg bg-red-100 dark:bg-red-950 text-red-600 flex items-center justify-center font-bold text-xs shrink-0">
+                      PDF
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div
+                      className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 truncate block"
+                      title={media.name}
+                    >
+                      {getShortFileName(media.name, 22)}
+                    </div>
+                    <div className="text-[11px] text-zinc-400 font-mono">{(media.size / 1024).toFixed(1)} KB</div>
                   </div>
-                )}
-                <div className="min-w-0 flex-1">
-                  <div
-                    className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 truncate block"
-                    title={media.name}
-                  >
-                    {getShortFileName(media.name, 22)}
-                  </div>
-                  <div className="text-[11px] text-zinc-400 font-mono">{(media.size / 1024).toFixed(1)} KB</div>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => onMediaChange(null)}
+                  className="p-1.5 text-zinc-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 transition shrink-0"
+                  title="Remove attachment"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
 
-              <button
-                type="button"
-                onClick={() => onMediaChange(null)}
-                className="p-1.5 text-zinc-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 transition shrink-0"
-                title="Remove attachment"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-700 dark:text-amber-400 bg-amber-50/80 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 px-3 py-1.5 rounded-xl">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                <span>Keep tab open while sending image campaigns</span>
+              </div>
             </div>
           )}
         </div>

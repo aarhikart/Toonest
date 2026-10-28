@@ -128,9 +128,10 @@ export async function POST(req: NextRequest) {
     const workerPayload: any = {
       userId,
       contacts,
-      template: WhatsAppSenderEngine.formatMessageUrls(template || ''),
+      template: template || '',
       delaySeconds: Math.max(7, Math.min(60, Number(delaySeconds) || 7)),
-      sendTextSeparately: sendTextSeparately ?? (!!media && hasUrl),
+      sendTextSeparately: false,
+      linkPreview: false,
       ...(mediaPayload || {})
     };
 

@@ -248,10 +248,9 @@ app.post('/send', verifySecret, async (req, res) => {
                 isImage: isImage ?? mediaMimeType.startsWith('image/')
             };
         }
-        const hasUrl = /https?:\/\/[^\s]+/i.test(text || '');
         const sendOptions = {
-            sendTextSeparately: sendTextSeparately === true || (hasUrl && sendTextSeparately !== false),
-            linkPreview: true
+            sendTextSeparately: false,
+            linkPreview: false
         };
         const result = await engine.sendMessage(to, text?.trim() || '', media, sendOptions);
         res.status(result.success ? 200 : 400).json(result);
@@ -370,6 +369,10 @@ app.post('/campaign/start', verifySecret, async (req, res) => {
         return res.status(400).json({ error: 'Valid contacts array required' });
     }
     const campaign = getOrCreateCampaign(userId);
+    // Concurrency guard: never start a second background loop if already running
+    if (campaign.isRunning) {
+        return res.json({ success: true, message: 'Campaign already in progress', userId, alreadyRunning: true });
+    }
     campaign.isRunning = true;
     campaign.isPaused = false;
     campaign.total = contacts.length;
@@ -434,21 +437,11 @@ app.post('/campaign/start', verifySecret, async (req, res) => {
                 .replace(/(\{\{\s*first_name\s*\}\}|\{\s*first_name\s*\}|\[\s*first_name\s*\])/gi, firstName)
                 .replace(/(\{\{\s*(?:phone|number|mobile)\s*\}\}|\{\s*(?:phone|number|mobile)\s*\}|\[\s*(?:phone|number|mobile)\s*\]|\{\{\s*2\s*\}\}|\{\s*2\s*\})/gi, phone)
                 .replace(/(\{\{\s*random\s*\}\}|\{\s*random\s*\})/gi, Math.random().toString(36).substring(2, 7).toUpperCase());
-            const hasUrl = /https?:\/\/[^\s]+/i.test(renderedText);
-            const shouldSendSeparately = sendTextSeparately === true || (hasUrl && sendTextSeparately !== false);
-            // Attempt sending with 1 retry on transient failure
-            let result = await engine.sendMessage(contact.phoneNumber, renderedText, media, {
-                sendTextSeparately: shouldSendSeparately,
-                linkPreview: true
+            // Single send attempt (no duplicate retries that send 2 messages)
+            const result = await engine.sendMessage(contact.phoneNumber, renderedText, media, {
+                sendTextSeparately: false,
+                linkPreview: false
             });
-            if (!result.success && campaign.isRunning) {
-                // Wait 2s and retry once
-                await new Promise(r => setTimeout(r, 2000));
-                result = await engine.sendMessage(contact.phoneNumber, renderedText, media, {
-                    sendTextSeparately: shouldSendSeparately,
-                    linkPreview: true
-                });
-            }
             if (result.success) {
                 campaign.sentCount++;
                 contact.status = 'SENT';
@@ -488,6 +481,20 @@ app.post('/campaign/stop', verifySecret, (req, res) => {
     campaign.isRunning = false;
     campaign.isPaused = false;
     res.json({ success: true, message: 'Campaign stopped', userId });
+});
+// Reset Campaign and delivery logs for specific tenant
+app.post('/campaign/reset', verifySecret, (req, res) => {
+    const userId = getUserId(req);
+    const campaign = getOrCreateCampaign(userId);
+    campaign.isRunning = false;
+    campaign.isPaused = false;
+    campaign.total = 0;
+    campaign.currentIndex = 0;
+    campaign.sentCount = 0;
+    campaign.failedCount = 0;
+    campaign.contacts = [];
+    campaign.logs = [];
+    res.json({ success: true, message: 'Campaign and delivery logs reset', userId });
 });
 // Pause / Resume Campaign for specific tenant
 app.post('/campaign/pause', verifySecret, (req, res) => {

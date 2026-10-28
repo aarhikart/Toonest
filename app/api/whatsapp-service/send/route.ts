@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
         const res = await fetch(`${url}/send`, {
           method: 'POST',
           headers: getWorkerHeaders(serviceSecret, userId),
-          body: JSON.stringify({ ...body, userId }),
+          body: JSON.stringify({ ...body, userId, linkPreview: false, sendTextSeparately: false }),
           signal: controller.signal
         });
         clearTimeout(timeout);

@@ -576,40 +576,22 @@ export class WhatsAppSessionEngine {
       try {
         if (messageMedia) {
           try {
-            if (shouldSendSeparately && cleanText) {
-              const mediaSent = await this.client.sendMessage(chatId, messageMedia);
-              await new Promise((resolve) => setTimeout(resolve, 1000));
-              const textSent = await this.client.sendMessage(chatId, cleanText, {
-                linkPreview: true
-              });
-              const msgId = (textSent as any)?.id?._serialized || (textSent as any)?.id?.id || (mediaSent as any)?.id?._serialized || `msg_${Date.now()}`;
-              return { success: true, messageId: msgId };
-            } else {
-              // Unified delivery: media with caption as single message (matching standard WhatsApp media message)
-              const sent = await this.client.sendMessage(chatId, messageMedia, {
-                caption: cleanText || undefined
-              });
-              const msgId = (sent as any)?.id?._serialized || (sent as any)?.id?.id || `msg_${Date.now()}`;
-              return { success: true, messageId: msgId };
-            }
+            // Unified delivery: media with caption as single message (both image & text in one message)
+            const sent = await this.client.sendMessage(chatId, messageMedia, {
+              caption: cleanText || undefined,
+              linkPreview: false
+            });
+            const msgId = (sent as any)?.id?._serialized || (sent as any)?.id?.id || `msg_${Date.now()}`;
+            return { success: true, messageId: msgId };
           } catch (mediaErr: any) {
             console.warn(`[WhatsApp Worker] Media dispatch failed for ${digits}:`, mediaErr?.message || mediaErr);
-            if (cleanText) {
-              try {
-                const sentFallback = await this.client.sendMessage(chatId, cleanText, {
-                  linkPreview: true
-                });
-                const msgId = (sentFallback as any)?.id?._serialized || (sentFallback as any)?.id?.id || `msg_${Date.now()}`;
-                return { success: true, messageId: msgId };
-              } catch (_) {}
-            }
             throw mediaErr;
           }
         }
 
-        // Plain text message with link preview
+        // Plain text message without website link preview card (clean simple message as requested)
         const sent = await this.client.sendMessage(chatId, cleanText, {
-          linkPreview: true
+          linkPreview: false
         });
         const msgId = (sent as any)?.id?._serialized || (sent as any)?.id?.id || `msg_${Date.now()}`;
         return { success: true, messageId: msgId };

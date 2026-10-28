@@ -53,11 +53,11 @@ export async function POST(req: NextRequest) {
       { upsert: true }
     );
 
-    // 4. Reset worker campaign state if reachable
+    // 4. Reset worker campaign state and delivery logs if reachable
     try {
       const serviceUrl = await getWhatsAppServiceUrl(req);
       const serviceSecret = getWhatsAppServiceSecret();
-      await fetch(`${serviceUrl}/campaign/stop`, {
+      await fetch(`${serviceUrl}/campaign/reset`, {
         method: 'POST',
         headers: getWorkerHeaders(serviceSecret, userId),
         body: JSON.stringify({ userId })

@@ -15,7 +15,9 @@ import {
   ShieldCheck,
   Server,
   HelpCircle,
-  Zap
+  Zap,
+  RotateCcw,
+  Loader2
 } from 'lucide-react';
 import { WebContact, WhatsAppWebSession } from '@/lib/whatsapp-web/types';
 import { WhatsAppSenderEngine } from '@/lib/whatsapp-web/sender';
@@ -79,6 +81,8 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
   const [currentIndex, setCurrentIndex] = useState(0);
   const [logs, setLogs] = useState<LogItem[]>([]);
   const [dispatchMode, setDispatchMode] = useState<'WORKER' | 'BROWSER_TABS'>('WORKER');
+  const [showImageNoticeModal, setShowImageNoticeModal] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
 
   const isPlanExpired = !!currentUser && currentUser.role !== 'admin' && (
     currentUser.isExpired === true ||
@@ -134,6 +138,8 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
 
   const isRunningRef = useRef(false);
   const isPausedRef = useRef(false);
+  const isStartingRef = useRef(false);
+  const isLocalSendingRef = useRef(false);
 
   // Poll campaign status from MongoDB / Worker Gateway to support tab closures & multi-device sync
   React.useEffect(() => {
@@ -157,21 +163,29 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
           isRunningRef.current = true;
           isPausedRef.current = data.isPaused ?? false;
           setCurrentIndex(data.currentIndex ?? 0);
-        } else {
-          if (isRunningRef.current) {
-            setIsRunning(false);
-            setIsPaused(false);
-            isRunningRef.current = false;
-            isPausedRef.current = false;
+          if (Array.isArray(data.contacts) && data.contacts.length > 0) {
+            onContactsUpdate(data.contacts);
           }
-        }
-
-        if (Array.isArray(data.contacts) && data.contacts.length > 0) {
-          onContactsUpdate(data.contacts);
-        }
-
-        if (Array.isArray(data.logs)) {
-          setLogs(data.logs);
+          if (Array.isArray(data.logs)) {
+            setLogs(data.logs);
+          }
+        } else {
+          // IMPORTANT: If we just started a campaign or are currently streaming media locally in the tab,
+          // DO NOT let the idle server status overwrite isRunning!
+          if (!isStartingRef.current && !isLocalSendingRef.current) {
+            if (isRunningRef.current) {
+              setIsRunning(false);
+              setIsPaused(false);
+              isRunningRef.current = false;
+              isPausedRef.current = false;
+            }
+            if (Array.isArray(data.contacts) && data.contacts.length > 0) {
+              onContactsUpdate(data.contacts);
+            }
+            if (Array.isArray(data.logs)) {
+              setLogs(data.logs);
+            }
+          }
         }
       } catch (_) {}
     };
@@ -181,7 +195,7 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
 
     // Poll every 2.5 seconds when campaign is active
     const timer = setInterval(() => {
-      if (isRunningRef.current) {
+      if (isRunningRef.current && !isLocalSendingRef.current) {
         pollStatus();
       }
     }, 2500);
@@ -195,16 +209,17 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
   const total = contacts.length;
   const sentCount = contacts.filter(c => c.status === 'SENT').length;
   const failedCount = contacts.filter(c => c.status === 'FAILED').length;
+  const remainingCount = contacts.filter(c => c.status !== 'SENT').length;
   const progressPct = total > 0 ? Math.round((sentCount / total) * 100) : 0;
 
-  const startCampaign = async () => {
+  const startCampaign = async (confirmedImageNotice: boolean = false) => {
     if (isPlanExpired) {
       alert('Your plan has expired!\n\nPlease renew your plan to start sending WhatsApp marketing campaigns.');
       if (onOpenRenewalModal) onOpenRenewalModal();
       return;
     }
-    if (dispatchMode === 'WORKER' && !session.connected) {
-      alert('Please connect WhatsApp Web first via QR Code or Pairing Code in Step 1, or select "Browser Direct Mode".');
+    if (!session.connected) {
+      alert('Please connect WhatsApp Web first via QR Code or Pairing Code in Step 1.');
       return;
     }
     if (contacts.length === 0) {
@@ -216,6 +231,21 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
       return;
     }
 
+    // Notice modal for image campaigns: remind user to keep browser tab open
+    if (media && !confirmedImageNotice) {
+      setShowImageNoticeModal(true);
+      return;
+    }
+
+    // Guard: Prevent double-click launches
+    if (isRunningRef.current || isStartingRef.current) {
+      return;
+    }
+
+    // Lock starting state immediately to prevent flicker and multi-clicks
+    setIsStarting(true);
+    isStartingRef.current = true;
+
     // Check message limit quota before starting (check latest from MongoDB)
     let currentQuota = WhatsAppLimitManager.getUsage(effectiveUserId, userLimit, effectiveResetHours);
     if (effectiveUserId && effectiveUserId !== 'default') {
@@ -226,6 +256,8 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
     setUsage(currentQuota);
 
     if (currentQuota.isLimitReached && currentQuota.isResetTimerActive) {
+      setIsStarting(false);
+      isStartingRef.current = false;
       alert(
         `Message quota limit of ${userLimit} reached for this ${effectiveResetHours}-hour window.\n\nYou can send messages again on ${currentQuota.resetTimeFormatted} (in ${currentQuota.timeRemainingStr}).`
       );
@@ -245,9 +277,11 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
 
     const pendingContacts = currentList.filter(c => c.status !== 'SENT');
     if (pendingContacts.length === 0 && currentList.length > 0) {
-      alert(
-        'All contacts in your list have already received messages!\n\nTo prevent duplicate messages, already delivered contacts are not messaged again. Add new contacts to continue sending.'
-      );
+      setIsStarting(false);
+      isStartingRef.current = false;
+      if (confirm('All contacts in your list have already received messages!\n\nWould you like to reset all contacts so you can send to this list again?')) {
+        resetAllStatuses();
+      }
       return;
     }
     onContactsUpdate([...currentList]);
@@ -257,186 +291,232 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
     isRunningRef.current = true;
     isPausedRef.current = false;
 
-    if (dispatchMode === 'WORKER') {
+    // --- PIPELINE 1: MEDIA (IMAGE/DOCUMENT) ATTACHED ---
+    // Sequential delivery directly from the tab so media streams cleanly with caption in ONE message.
+    // Tab must remain open during sending; if closed, remaining contacts pause and can be resumed.
+    if (media) {
+      isLocalSendingRef.current = true;
+      setIsStarting(false);
+      isStartingRef.current = false;
+
       try {
         const savedWorkerUrl = typeof window !== 'undefined' ? localStorage.getItem('toolnest_wa_worker_url') || '' : '';
-        const hasUrl = /https?:\/\/[^\s]+/i.test(messageTemplate);
-        const res = await fetch('/api/whatsapp-marketing/campaign/start', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-user-id': effectiveUserId,
-            ...(savedWorkerUrl ? { 'x-worker-url': savedWorkerUrl } : {})
-          },
-          body: JSON.stringify({
-            userId: effectiveUserId,
-            contacts: currentList,
-            template: messageTemplate,
-            delaySeconds: Math.max(7, Math.min(60, delaySeconds || 7)),
-            media,
-            sendTextSeparately: !!media && hasUrl
-          })
-        });
+        const cleanBase64 = media.dataUrl.includes(',') ? media.dataUrl.split(',')[1] : media.dataUrl;
 
-        const data = await res.json();
-        if (!res.ok || !data.success) {
-          setIsRunning(false);
-          isRunningRef.current = false;
-          alert(data.error || 'Failed to start background campaign.');
-          return;
+        let sentThisRun = 0;
+        for (let i = 0; i < currentList.length; i++) {
+          if (!isRunningRef.current) break;
+
+          while (isPausedRef.current) {
+            await new Promise(r => setTimeout(r, 500));
+            if (!isRunningRef.current) break;
+          }
+          if (!isRunningRef.current) break;
+
+          const contact = currentList[i];
+          if (contact.status === 'SENT') {
+            continue;
+          }
+
+          setCurrentIndex(i);
+
+          // Check live quota before each send
+          const liveQuota = WhatsAppLimitManager.getUsage(effectiveUserId, userLimit, effectiveResetHours);
+          if (liveQuota.isLimitReached && liveQuota.isResetTimerActive) {
+            setUsage(liveQuota);
+            setIsRunning(false);
+            isRunningRef.current = false;
+            alert(
+              `Message limit of ${userLimit} reached!\n\nCampaign paused safely. You can send the remaining contacts on ${liveQuota.resetTimeFormatted} (in ${liveQuota.timeRemainingStr}).`
+            );
+            break;
+          }
+
+          // Anti-ban & session settlement delay between consecutive sends
+          if (sentThisRun > 0) {
+            const effectiveDelay = Math.max(7, Math.min(60, delaySeconds || 7));
+            const safeDelayMs = Math.max(7000, (effectiveDelay + (Math.random() * 1.5 - 0.75)) * 1000);
+            await new Promise(r => setTimeout(r, safeDelayMs));
+          }
+          if (!isRunningRef.current) break;
+
+          contact.status = 'SENDING';
+          onContactsUpdate([...currentList]);
+
+          // Use currently edited message template with customer variables
+          const customizedText = WhatsAppSenderEngine.interpolate(messageTemplate, contact).trim();
+
+          let sendSuccess = false;
+          let failureReason = '';
+          let msgId = '';
+
+          try {
+            const res = await fetch('/api/whatsapp-service/send', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-user-id': effectiveUserId,
+                ...(savedWorkerUrl ? { 'x-worker-url': savedWorkerUrl } : {})
+              },
+              body: JSON.stringify({
+                userId: effectiveUserId,
+                to: contact.phoneNumber,
+                text: customizedText,
+                mediaBase64: cleanBase64,
+                mediaMimeType: media.type,
+                fileName: media.name,
+                isImage: media.isImage,
+                sendTextSeparately: false,
+                linkPreview: false
+              })
+            });
+
+            const sendData = await res.json().catch(() => ({}));
+            if (res.ok && sendData.success) {
+              sendSuccess = true;
+              msgId = sendData.messageId || '';
+            } else {
+              failureReason = sendData.error || 'Message delivery failed';
+            }
+          } catch (err: any) {
+            failureReason = err.message || 'Network error';
+          }
+
+          if (sendSuccess) {
+            sentThisRun++;
+            contact.status = 'SENT';
+            contact.sentAt = new Date().toISOString();
+            contact.error = undefined;
+            const updatedUsage = WhatsAppLimitManager.recordDelivery(
+              effectiveUserId,
+              contact.phoneNumber,
+              userLimit,
+              effectiveResetHours
+            );
+            setUsage(updatedUsage);
+          } else {
+            contact.status = 'FAILED';
+            contact.error = failureReason;
+          }
+
+          onContactsUpdate([...currentList]);
+
+          // Persist progress to MongoDB after each contact so tab closing never loses status
+          try {
+            fetch('/api/whatsapp-marketing/contacts', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'x-user-id': effectiveUserId },
+              body: JSON.stringify({ userId: effectiveUserId, contacts: currentList })
+            }).catch(() => {});
+          } catch (_) {}
+
+          setLogs(prev => [
+            {
+              id: `log_${Date.now()}_${i}`,
+              timestamp: new Date().toLocaleTimeString(),
+              contactName: contact.name,
+              phoneNumber: contact.phoneNumber,
+              status: sendSuccess ? 'SENT' : 'FAILED',
+              message: customizedText || (media ? `[Photo: ${media.name}]` : ''),
+              hasAttachment: true,
+              error: failureReason || undefined,
+              messageId: msgId || undefined
+            },
+            ...prev
+          ]);
         }
+      } catch (err: any) {
+        console.error('Image campaign loop error:', err);
+      } finally {
+        isLocalSendingRef.current = false;
+        setIsRunning(false);
+        setIsPaused(false);
+        isRunningRef.current = false;
+        isPausedRef.current = false;
 
-        // Trigger immediate status poll to catch initial campaign progress
+        // Record campaign summary to MongoDB
         try {
-          const statusRes = await fetch('/api/whatsapp-marketing/campaign/status', {
-            headers: {
-              'x-user-id': effectiveUserId,
-              ...(savedWorkerUrl ? { 'x-worker-url': savedWorkerUrl } : {})
-            }
-          });
-          if (statusRes.ok) {
-            const statusData = await statusRes.json();
-            if (statusData.success) {
-              if (Array.isArray(statusData.contacts)) onContactsUpdate(statusData.contacts);
-              if (Array.isArray(statusData.logs)) setLogs(statusData.logs);
-            }
+          const finalSent = currentList.filter(c => c.status === 'SENT').length;
+          const finalFailed = currentList.filter(c => c.status === 'FAILED').length;
+          if (finalSent > 0 || finalFailed > 0) {
+            fetch('/api/campaigns/record', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                campaignName: `Campaign (${new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })})`,
+                template: messageTemplate,
+                totalContacts: currentList.length,
+                successfulMessages: finalSent,
+                failedMessages: finalFailed,
+                status: 'completed'
+              })
+            }).catch(() => {});
           }
         } catch (_) {}
-      } catch (err: any) {
-        setIsRunning(false);
-        isRunningRef.current = false;
-        alert('Could not start campaign: ' + (err.message || 'Network error'));
       }
       return;
     }
 
-    for (let i = 0; i < currentList.length; i++) {
-      if (!isRunningRef.current) break;
+    // --- PIPELINE 2: TEXT-ONLY CAMPAIGN ---
+    // Dispatched to persistent background worker on server: tab can be safely closed!
+    try {
+      const savedWorkerUrl = typeof window !== 'undefined' ? localStorage.getItem('toolnest_wa_worker_url') || '' : '';
+      const res = await fetch('/api/whatsapp-marketing/campaign/start', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': effectiveUserId,
+          ...(savedWorkerUrl ? { 'x-worker-url': savedWorkerUrl } : {})
+        },
+        body: JSON.stringify({
+          userId: effectiveUserId,
+          contacts: currentList,
+          template: messageTemplate,
+          delaySeconds: Math.max(7, Math.min(60, delaySeconds || 7)),
+          sendTextSeparately: false,
+          linkPreview: false
+        })
+      });
 
-      while (isPausedRef.current) {
-        await new Promise(r => setTimeout(r, 500));
-        if (!isRunningRef.current) break;
-      }
-
-      if (!isRunningRef.current) break;
-
-      setCurrentIndex(i);
-      const contact = currentList[i];
-      if (contact.status === 'SENT' || WhatsAppLimitManager.isAlreadyDelivered(effectiveUserId, contact.phoneNumber)) {
-        if (contact.status !== 'SENT') {
-          contact.status = 'SENT';
-          onContactsUpdate([...currentList]);
-        }
-        continue;
-      }
-
-      // Check quota before sending this contact
-      const liveQuota = WhatsAppLimitManager.getUsage(effectiveUserId, userLimit, effectiveResetHours);
-      if (liveQuota.isLimitReached && liveQuota.isResetTimerActive) {
-        setUsage(liveQuota);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
         setIsRunning(false);
         isRunningRef.current = false;
-        alert(
-          `Message limit of ${userLimit} reached for this ${effectiveResetHours}-hour window!\n\nCampaign paused safely. Delivered contacts are saved so duplicate messages will not be sent.\n\nYou can send the remaining contacts on ${liveQuota.resetTimeFormatted} (in ${liveQuota.timeRemainingStr}).`
-        );
-        break;
+        setIsStarting(false);
+        isStartingRef.current = false;
+        alert(data.error || 'Failed to start background campaign.');
+        return;
       }
 
-      contact.status = 'SENDING';
-      onContactsUpdate([...currentList]);
+      // Safe grace window: keep isStartingRef true for 3.5s so early polls cannot flip isRunning to false
+      setTimeout(() => {
+        isStartingRef.current = false;
+        setIsStarting(false);
+      }, 3500);
 
-      const customizedText = WhatsAppSenderEngine.interpolate(messageTemplate, contact).trim();
-      if (!customizedText && !media) {
-        contact.status = 'FAILED';
-        onContactsUpdate([...currentList]);
-        setLogs(prev => [
-          {
-            id: `log_${Date.now()}_${i}`,
-            timestamp: new Date().toLocaleTimeString(),
-            contactName: contact.name,
-            phoneNumber: contact.phoneNumber,
-            status: 'FAILED',
-            message: '(Empty message text)',
-            hasAttachment: false,
-            error: 'Cannot send empty message'
-          },
-          ...prev
-        ]);
-        continue;
-      }
-
-      // Safe anti-ban & Signal session settlement delay between consecutive contacts
-      if (i > 0) {
-        const effectiveDelay = Math.max(7, Math.min(60, delaySeconds || 7));
-        const safeDelayMs = Math.max(7000, (effectiveDelay + (Math.random() * 1.5 - 0.75)) * 1000);
-        await new Promise(r => setTimeout(r, safeDelayMs));
-      }
-
-      if (!isRunningRef.current) break;
-
-      let sendSuccess = false;
-      let failureReason = '';
-      let msgId = '';
-
-      // Browser tab mode: open WhatsApp Web send tab
-      const url = WhatsAppSenderEngine.getDirectWhatsAppWebUrl(contact.phoneNumber, customizedText);
-      window.open(url, '_blank');
-      sendSuccess = true;
-
-      contact.status = sendSuccess ? 'SENT' : 'FAILED';
-      contact.sentAt = new Date().toISOString();
-      onContactsUpdate([...currentList]);
-
-      if (sendSuccess) {
-        const updatedUsage = WhatsAppLimitManager.recordDelivery(
-          effectiveUserId,
-          contact.phoneNumber,
-          userLimit,
-          effectiveResetHours
-        );
-        setUsage(updatedUsage);
-      }
-
-      setLogs(prev => [
-        {
-          id: `log_${Date.now()}_${i}`,
-          timestamp: new Date().toLocaleTimeString(),
-          contactName: contact.name,
-          phoneNumber: contact.phoneNumber,
-          status: sendSuccess ? 'SENT' : 'FAILED',
-          message: customizedText,
-          hasAttachment: Boolean(media),
-          error: failureReason || undefined,
-          messageId: msgId || undefined
-        },
-        ...prev
-      ]);
+      // Initial status poll
+      try {
+        const statusRes = await fetch('/api/whatsapp-marketing/campaign/status', {
+          headers: {
+            'x-user-id': effectiveUserId,
+            ...(savedWorkerUrl ? { 'x-worker-url': savedWorkerUrl } : {})
+          }
+        });
+        if (statusRes.ok) {
+          const statusData = await statusRes.json();
+          if (statusData.success) {
+            if (Array.isArray(statusData.contacts)) onContactsUpdate(statusData.contacts);
+            if (Array.isArray(statusData.logs)) setLogs(statusData.logs);
+          }
+        }
+      } catch (_) {}
+    } catch (err: any) {
+      setIsRunning(false);
+      isRunningRef.current = false;
+      setIsStarting(false);
+      isStartingRef.current = false;
+      alert('Could not start campaign: ' + (err.message || 'Network error'));
     }
-
-    setIsRunning(false);
-    setIsPaused(false);
-    isRunningRef.current = false;
-    isPausedRef.current = false;
-
-    // Automatically record campaign run to MongoDB
-    try {
-      const finalSent = currentList.filter(c => c.status === 'SENT').length;
-      const finalFailed = currentList.filter(c => c.status === 'FAILED').length;
-      if (finalSent > 0 || finalFailed > 0) {
-        fetch('/api/campaigns/record', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            campaignName: `Campaign (${new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })})`,
-            template: messageTemplate,
-            totalContacts: currentList.length,
-            successfulMessages: finalSent,
-            failedMessages: finalFailed,
-            status: 'completed'
-          })
-        }).catch(() => {});
-      }
-    } catch (_) {}
   };
 
   const handlePauseResume = async () => {
@@ -455,12 +535,17 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
       await fetch('/api/whatsapp-marketing/campaign/pause', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ userId: effectiveUserId, action: 'pause' })
+        body: JSON.stringify({ userId: effectiveUserId, action: nextPaused ? 'pause' : 'resume' })
       }).catch(() => {});
     } catch (_) {}
   };
 
   const handleStop = async () => {
+    setIsRunning(false);
+    setIsPaused(false);
+    isRunningRef.current = false;
+    isPausedRef.current = false;
+
     try {
       const savedWorkerUrl = typeof window !== 'undefined' ? localStorage.getItem('toolnest_wa_worker_url') || '' : '';
       const headers: Record<string, string> = {
@@ -475,16 +560,22 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
         body: JSON.stringify({ userId: effectiveUserId })
       }).catch(() => {});
     } catch (_) {}
-    setIsRunning(false);
-    setIsPaused(false);
-    isRunningRef.current = false;
-    isPausedRef.current = false;
   };
 
-  // Upgraded Reset: clears delivery history tracking and reverts contacts to PENDING without deleting customer records
+  // Upgraded Reset: clears delivery history tracking, clears Live Delivery Status, and reverts contacts to PENDING
   const resetAllStatuses = async () => {
     try {
-      // 1. Clear database delivered numbers and reset progress in MongoDB
+      setIsStarting(false);
+      isStartingRef.current = false;
+      isLocalSendingRef.current = false;
+      setIsRunning(false);
+      setIsPaused(false);
+      isRunningRef.current = false;
+      isPausedRef.current = false;
+      setCurrentIndex(0);
+      setLogs([]); // Immediately clear local Live Delivery Status
+
+      // 1. Clear database delivered numbers, delivery logs, and reset progress in MongoDB & Worker
       const savedWorkerUrl = typeof window !== 'undefined' ? localStorage.getItem('toolnest_wa_worker_url') || '' : '';
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
@@ -510,17 +601,21 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
       }));
       onContactsUpdate(reset);
 
-      // 4. Reset component state
-      setCurrentIndex(0);
-      setIsRunning(false);
-      setIsPaused(false);
-      isRunningRef.current = false;
-      isPausedRef.current = false;
+      // 4. Save reset contacts to MongoDB
+      fetch('/api/whatsapp-marketing/contacts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-id': effectiveUserId },
+        body: JSON.stringify({ userId: effectiveUserId, contacts: reset })
+      }).catch(() => {});
+
+      // 5. Ensure logs state is completely cleared
+      setLogs([]);
     } catch (err) {
       console.error('Reset error:', err);
       WhatsAppLimitManager.clearDeliveredNumbers(effectiveUserId);
       const reset = contacts.map(c => ({ ...c, status: 'PENDING' as const, sentAt: undefined, error: undefined }));
       onContactsUpdate(reset);
+      setLogs([]);
     }
   };
 
@@ -556,24 +651,63 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
                 type="button"
                 onClick={resetAllStatuses}
                 className="px-3 py-1.5 sm:px-3.5 sm:py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-semibold rounded-xl text-xs flex items-center gap-1.5 border border-zinc-200 dark:border-zinc-700 transition shadow-xs cursor-pointer"
-                title="Reset so you can send to all contacts again"
+                title="Reset contact statuses so you can send to this list again"
               >
-                <Clock className="w-3.5 h-3.5 text-zinc-400" />
+                <RotateCcw className="w-3.5 h-3.5 text-zinc-400" />
                 <span>Reset</span>
               </button>
               <button
                 type="button"
-                onClick={startCampaign}
-                disabled={isPlanExpired}
-                title={isPlanExpired ? "Your plan has expired. Please renew your plan to start sending." : "Start sending messages to customer list"}
-                className={`px-4 py-1.5 sm:px-5 sm:py-2 font-semibold rounded-xl text-xs flex items-center gap-1.5 transition ${
+                onClick={() => {
+                  if (isStarting) return;
+                  if (remainingCount === 0 && total > 0) {
+                    if (confirm('All contacts have already received messages!\n\nWould you like to reset all contacts to PENDING so you can send to this list again?')) {
+                      resetAllStatuses();
+                    }
+                    return;
+                  }
+                  startCampaign();
+                }}
+                disabled={isPlanExpired || isStarting}
+                title={
                   isPlanExpired
+                    ? "Your plan has expired. Please renew your plan to start sending."
+                    : isStarting
+                    ? "Starting campaign..."
+                    : remainingCount === 0 && total > 0
+                    ? "All contacts delivered. Click to reset and resend."
+                    : sentCount > 0
+                    ? `Resume sending to remaining ${remainingCount} contacts`
+                    : "Start sending messages to customer list"
+                }
+                className={`px-4 py-1.5 sm:px-5 sm:py-2 font-semibold rounded-xl text-xs flex items-center gap-1.5 transition ${
+                  isPlanExpired || isStarting
                     ? 'bg-zinc-200 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500 cursor-not-allowed shadow-none border border-zinc-300/50 dark:border-zinc-700/50'
+                    : remainingCount === 0 && total > 0
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md cursor-pointer'
                     : 'bg-[#5722AF] hover:bg-[#471a93] text-white shadow-md cursor-pointer'
                 }`}
               >
-                <Play className="w-3.5 h-3.5" />
-                <span>Start Sending</span>
+                {isStarting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Starting...</span>
+                  </>
+                ) : remainingCount === 0 && total > 0 ? (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>All Sent (Click Reset to Resend)</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-3.5 h-3.5" />
+                    <span>
+                      {sentCount > 0 && remainingCount > 0
+                        ? `Resume Sending (${remainingCount} Remaining)`
+                        : 'Start Sending'}
+                    </span>
+                  </>
+                )}
               </button>
             </div>
           ) : (
@@ -596,6 +730,34 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
           )}
         </div>
       </div>
+
+      {/* Attachment Active Banner Notice */}
+      {media && !isRunning && (
+        <div className="p-3 bg-amber-50/90 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/80 rounded-2xl flex items-center gap-2.5 text-xs text-amber-900 dark:text-amber-300 shadow-2xs">
+          <AlertCircle className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <span>
+            <strong>Attachment Active:</strong> Please keep this tab / website open while sending image messages. If you close this tab, sending will pause.
+          </span>
+        </div>
+      )}
+
+      {/* Live Running Status Banners */}
+      {isRunning && !media && (
+        <div className="p-3 bg-emerald-50/90 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/80 rounded-2xl flex items-center gap-2.5 text-xs text-emerald-900 dark:text-emerald-300 shadow-2xs">
+          <Radio className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400 animate-pulse" />
+          <span>
+            <strong>Background Sending Active:</strong> Messages are being dispatched by the server in the background. You can safely close or refresh this tab.
+          </span>
+        </div>
+      )}
+      {isRunning && media && (
+        <div className="p-3 bg-purple-50/90 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800/80 rounded-2xl flex items-center gap-2.5 text-xs text-[#5722AF] dark:text-purple-300 shadow-2xs">
+          <Radio className="w-4 h-4 shrink-0 text-[#5722AF] dark:text-purple-400 animate-pulse" />
+          <span>
+            <strong>Live Image Streaming Active:</strong> Please keep this website / tab open while sending image messages.
+          </span>
+        </div>
+      )}
 
       {/* Plan Expired Alert Message */}
       {isPlanExpired && (
@@ -786,6 +948,63 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
           )}
         </div>
       </div>
+
+      {/* Image Campaign: Keep Tab Open Notice Modal */}
+      {showImageNoticeModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150"
+          onClick={() => setShowImageNoticeModal(false)}
+        >
+          <div
+            className="w-full max-w-md bg-white dark:bg-[#131620] border border-zinc-200 dark:border-zinc-800 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                <AlertCircle className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                  Image Campaign: Keep Tab Open
+                </h3>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Browser streaming required for media transmission
+                </p>
+              </div>
+            </div>
+
+            <div className="text-xs text-zinc-600 dark:text-zinc-300 space-y-2 leading-relaxed bg-zinc-50 dark:bg-zinc-800/40 p-3.5 rounded-2xl border border-zinc-200/80 dark:border-zinc-700/80">
+              <p>
+                Your message will be sent with the photo and caption together as <strong>one single WhatsApp message</strong>.
+              </p>
+              <p className="text-amber-800 dark:text-amber-300 font-semibold">
+                ⚠️ Please keep this tab / website open while sending. If you close this tab, sending will pause. You can reopen and click &ldquo;Resume Sending&rdquo; at any time.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowImageNoticeModal(false)}
+                className="px-4 py-2 text-xs font-semibold text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowImageNoticeModal(false);
+                  startCampaign(true);
+                }}
+                className="px-4 py-2 bg-[#5722AF] hover:bg-[#471a93] text-white rounded-xl text-xs font-semibold transition shadow-md cursor-pointer flex items-center gap-1.5"
+              >
+                <Play className="w-3.5 h-3.5" />
+                <span>Keep Tab Open & Start Sending</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -28,8 +28,10 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const userId = getWorkerUserId(req);
     const body = await req.json();
+    const userId = (body?.userId && typeof body.userId === 'string' && body.userId.trim() !== 'default')
+      ? body.userId.trim().toLowerCase()
+      : getWorkerUserId(req);
     const { contacts } = body;
 
     if (!Array.isArray(contacts)) {
