@@ -108,23 +108,11 @@ export default function WhatsAppMarketingPage() {
         setSession(userSession);
 
         try {
-          const contactRes = await fetch('/api/whatsapp-marketing/contacts');
-          let loadedContacts: WebContact[] | null = null;
-          if (contactRes.ok) {
-            const contactData = await contactRes.json();
-            if (contactData.success && Array.isArray(contactData.contacts) && contactData.contacts.length > 0) {
-              loadedContacts = contactData.contacts;
-            }
-          }
-          if (loadedContacts) {
-            setContacts(loadedContacts);
+          const savedContacts = localStorage.getItem(`toolnest_wa_contacts_${username}`);
+          if (savedContacts) {
+            setContacts(JSON.parse(savedContacts));
           } else {
-            const savedContacts = localStorage.getItem(`toolnest_wa_contacts_${username}`);
-            if (savedContacts) {
-              setContacts(JSON.parse(savedContacts));
-            } else {
-              setContacts(WhatsAppSenderEngine.getSampleContacts());
-            }
+            setContacts(WhatsAppSenderEngine.getSampleContacts());
           }
 
           const savedTmpl = localStorage.getItem(`toolnest_wa_template_${username}`);
@@ -226,11 +214,6 @@ export default function WhatsAppMarketingPage() {
     try {
       const username = currentUser?.username?.toLowerCase() || 'default';
       localStorage.setItem(`toolnest_wa_contacts_${username}`, JSON.stringify(newContacts));
-      fetch('/api/whatsapp-marketing/contacts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contacts: newContacts })
-      }).catch(() => {});
     } catch {}
   };
 
