@@ -24,7 +24,27 @@ export const POPULAR_COUNTRY_CODES: CountryCodeOption[] = [
 
 export class WhatsAppSenderEngine {
   /**
-   * Replace placeholders like {name}, {{name}}, {phone}, {{phone}}, {1}, {{1}}
+   * Spintax Parser: Randomly selects from {option1|option2|option3} variants.
+   * Completely defeats duplicate message hash detection on WhatsApp.
+   */
+  static parseSpintax(text: string): string {
+    if (!text) return '';
+    const spintaxRegex = /\{([^{}]+?\|[^{}]+?)\}/g;
+    let result = text;
+    let iterations = 0;
+    while (spintaxRegex.test(result) && iterations < 10) {
+      result = result.replace(spintaxRegex, (_, choices) => {
+        const options = choices.split('|');
+        const chosen = options[Math.floor(Math.random() * options.length)];
+        return chosen !== undefined ? chosen.trim() : '';
+      });
+      iterations++;
+    }
+    return result;
+  }
+
+  /**
+   * Replace placeholders like {name}, {{name}}, {phone}, {{phone}}, {1}, {{1}}, and Spintax
    */
   static interpolate(template: string, contact: WebContact): string {
     if (!template) return '';
@@ -32,15 +52,19 @@ export class WhatsAppSenderEngine {
     const firstName = safeName.split(' ')[0] || safeName;
     const phone = contact.phoneNumber || '';
 
-    return template
+    // 1. Process Spintax {Hello|Hi|Greetings} first so each contact gets unique phrasing
+    let processed = this.parseSpintax(template);
+
+    // 2. Replace contact & random attributes
+    return processed
       // Name: {{name}}, {name}, [name], %name%, {{1}}, {1}, {{customer}}, {customer}, {{contact}}, {contact}
       .replace(/(\{\{\s*(?:name|customer|customer_name|contact|contact_name)\s*\}\}|\{\s*(?:name|customer|customer_name|contact|contact_name)\s*\}|\[\s*(?:name|customer|customer_name|contact|contact_name)\s*\]|%\s*(?:name|customer|contact)\s*%|\{\{\s*1\s*\}\}|\{\s*1\s*\})/gi, safeName)
       // First name: {{first_name}}, {first_name}
       .replace(/(\{\{\s*first_name\s*\}\}|\{\s*first_name\s*\}|\[\s*first_name\s*\])/gi, firstName)
       // Phone: {{phone}}, {phone}, {{number}}, {number}, {{2}}, {2}
       .replace(/(\{\{\s*(?:phone|number|mobile)\s*\}\}|\{\s*(?:phone|number|mobile)\s*\}|\[\s*(?:phone|number|mobile)\s*\]|\{\{\s*2\s*\}\}|\{\s*2\s*\})/gi, phone)
-      // Random: {{random}}, {random}
-      .replace(/(\{\{\s*random\s*\}\}|\{\s*random\s*\})/gi, Math.random().toString(36).substring(2, 7).toUpperCase());
+      // Random: {{random}}, {random}, {{uid}}, {uid}, {{code}}, {code}
+      .replace(/(\{\{\s*(?:random|uid|code)\s*\}\}|\{\s*(?:random|uid|code)\s*\})/gi, () => Math.random().toString(36).substring(2, 7).toUpperCase());
   }
 
   /**

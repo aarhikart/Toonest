@@ -640,6 +640,21 @@ export class WhatsAppSessionEngine {
     let lastError: any = null;
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
+        // Human Presence & Typing Simulation: Send WebSocket "composing" state so WhatsApp recognizes genuine typing
+        try {
+          await this.client.sendPresenceAvailable().catch(() => {});
+          const chat = await (this.client as any).getChatById(chatId).catch(() => null);
+          if (chat && typeof chat.sendStateTyping === 'function') {
+            await chat.sendStateTyping().catch(() => {});
+            const textLen = cleanText.length || 20;
+            const typingMs = Math.min(3200, Math.max(1200, Math.round(textLen * 18 + Math.random() * 400)));
+            await new Promise((r) => setTimeout(r, typingMs));
+            if (typeof chat.clearState === 'function') {
+              await chat.clearState().catch(() => {});
+            }
+          }
+        } catch (_) {}
+
         if (messageMedia) {
           try {
             // Unified delivery: media with caption as single message (both image & text in one message)

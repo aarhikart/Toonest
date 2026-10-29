@@ -15,7 +15,8 @@ import {
   Globe,
   ExternalLink,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  ShieldCheck
 } from 'lucide-react';
 import { WebContact } from '@/lib/whatsapp-web/types';
 import { WhatsAppSenderEngine } from '@/lib/whatsapp-web/sender';
@@ -106,20 +107,20 @@ export const WhatsAppMessageComposer: React.FC<WhatsAppMessageComposerProps> = (
 
   const presets = [
     {
-      label: 'Special Offer',
-      text: 'Hi {name}! 🎉 We are excited to offer you an exclusive 25% discount this week. Reply to this message to claim your code!'
+      label: 'Spintax Promo (Safest)',
+      text: '{Hello|Hi|Greetings} {name}! 🎉 {We are excited to share|Check out} our exclusive 25% discount this week. Reply to this message to claim your code!'
+    },
+    {
+      label: 'Friendly Customer Update',
+      text: '{Hi|Hello|Dear} {name}, {quick update regarding your order|hope you are having a wonderful day! Here is your update}. Let us know if you need any assistance.'
     },
     {
       label: 'Website Link Promo',
-      text: 'Hi {name}! 🚀 Check out our latest online tools and automation platform at https://toonest.vercel.app. Enjoy seamless access!'
-    },
-    {
-      label: 'Meeting / Order Notice',
-      text: 'Hello {name}, this is a quick reminder regarding your upcoming appointment. Let us know if you need to reschedule.'
+      text: '{Hi|Hello|Hey} {name}! 🚀 {Explore our online platform|Check out our automation tools} at https://toonest.vercel.app. Enjoy seamless access!'
     },
     {
       label: 'Warm Welcome',
-      text: 'Hey {name}! Welcome to ToolNest. We are delighted to have you with us. Feel free to ask any questions!'
+      text: '{Hey|Hello|Hi} {name}! {Welcome to ToolNest|Delighted to have you with us}. Feel free to ask any questions!'
     }
   ];
 
@@ -244,6 +245,15 @@ export const WhatsAppMessageComposer: React.FC<WhatsAppMessageComposerProps> = (
             title="Click to insert customer's name"
           >
             {'{name}'}
+          </button>
+          <button
+            type="button"
+            onClick={() => insertVariable('{Hello|Hi|Greetings}')}
+            className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900 text-amber-700 dark:text-amber-300 rounded-lg text-xs font-mono font-bold transition cursor-pointer flex items-center gap-1 border border-amber-200/80 dark:border-amber-800/80"
+            title="Insert Spintax options {Hello|Hi|Greetings} so every recipient receives unique words"
+          >
+            <Sparkles className="w-3 h-3 text-amber-500" />
+            <span>{'{Spin}'}</span>
           </button>
           <button
             type="button"
@@ -384,6 +394,28 @@ export const WhatsAppMessageComposer: React.FC<WhatsAppMessageComposerProps> = (
           <p className="text-[10px] text-zinc-500">
             Safe waiting time between 7 to 60 seconds. Pausing between messages protects your WhatsApp account from being blocked.
           </p>
+        </div>
+
+        {/* Anti-Ban 4 Golden Rules Advisory Card */}
+        <div className="p-3.5 bg-gradient-to-br from-purple-50/60 via-purple-50/30 to-transparent dark:from-purple-950/30 dark:via-purple-950/15 dark:to-transparent border border-purple-200/80 dark:border-purple-800/60 rounded-xl space-y-2 text-xs">
+          <div className="flex items-center gap-2 font-bold text-[#5722AF] dark:text-purple-300 text-xs">
+            <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+            <span>4 Golden Rules to Prevent WhatsApp Account Bans</span>
+          </div>
+          <ul className="space-y-1.5 text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-400 list-disc list-inside">
+            <li>
+              <strong>Use Spintax Phrasing:</strong> Click <code className="bg-purple-100 dark:bg-purple-900/60 px-1 py-0.5 rounded text-purple-800 dark:text-purple-200 font-mono text-[10px]">&#123;Spin&#125;</code> to add variations like <code className="bg-purple-100 dark:bg-purple-900/60 px-1 py-0.5 rounded text-purple-800 dark:text-purple-200 font-mono text-[10px]">&#123;Hello|Hi|Greetings&#125;</code>. This prevents duplicate message hash flags.
+            </li>
+            <li>
+              <strong>Safe Interval Pacing:</strong> Set delays to at least 15s–30s. The system automatically injects realistic WebSocket typing states and humanized micro-jitters.
+            </li>
+            <li>
+              <strong>Automated Coffee Breaks:</strong> Every 12–16 messages, the sender automatically pauses for 90s to simulate natural human rest periods.
+            </li>
+            <li>
+              <strong>Opt-Out Protection:</strong> Keep the opt-out footer enabled so uninterested recipients reply STOP instead of clicking WhatsApp&apos;s &quot;Report Spam&quot; button.
+            </li>
+          </ul>
         </div>
       </div>
 

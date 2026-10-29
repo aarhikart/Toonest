@@ -79,6 +79,13 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
   const [logs, setLogs] = useState<LogItem[]>([]);
   const [showImageNoticeModal, setShowImageNoticeModal] = useState(false);
 
+  // Anti-Ban & Human Mimicry Controls
+  const [includeOptOutFooter, setIncludeOptOutFooter] = useState(true);
+  const [isOnBreak, setIsOnBreak] = useState(false);
+  const [breakSecondsLeft, setBreakSecondsLeft] = useState(0);
+  const [nextDelaySeconds, setNextDelaySeconds] = useState(0);
+  const skipBreakRef = useRef(false);
+
   const isPlanExpired = !!currentUser && currentUser.role !== 'admin' && (
     currentUser.isExpired === true ||
     (currentUser.daysRemaining !== undefined && currentUser.daysRemaining !== null && currentUser.daysRemaining <= 0) ||
@@ -250,21 +257,56 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
           break;
         }
 
-        // Anti-ban & Session settlement delay between consecutive sends (with natural human jitter)
+        // 1. Anti-Ban Automated Rest Break (Coffee Break): Rest 90-135s after every 12-16 messages
+        const breakBatchThreshold = 12 + (i % 5); // Natural varying batch size 12-16
+        if (sentThisRun > 0 && sentThisRun % breakBatchThreshold === 0) {
+          const breakDuration = 90 + Math.floor(Math.random() * 45); // 90 to 135 seconds
+          setIsOnBreak(true);
+          skipBreakRef.current = false;
+
+          for (let sec = breakDuration; sec > 0; sec--) {
+            if (!isRunningRef.current || skipBreakRef.current) break;
+            while (isPausedRef.current) {
+              await new Promise(r => setTimeout(r, 500));
+              if (!isRunningRef.current) break;
+            }
+            setBreakSecondsLeft(sec);
+            await new Promise(r => setTimeout(r, 1000));
+          }
+          setIsOnBreak(false);
+          setBreakSecondsLeft(0);
+        }
+        if (!isRunningRef.current) break;
+
+        // 2. Anti-ban & Session settlement delay between consecutive sends (with natural human jitter)
         if (sentThisRun > 0) {
-          const effectiveDelay = Math.max(7, Math.min(60, delaySeconds || 7));
-          // Natural jitter (±1.5 seconds) so messages are never sent with exact machine intervals
-          const jitter = (Math.random() * 3 - 1.5);
-          const safeDelayMs = Math.max(7000, Math.round((effectiveDelay + jitter) * 1000));
-          await new Promise(r => setTimeout(r, safeDelayMs));
+          const base = Math.max(7, Math.min(60, delaySeconds || 16));
+          // Natural random variance (+0% to +45% extra time) + micro-jitter
+          const variance = Math.random() * (base * 0.45);
+          const jitter = (Math.random() * 2 - 1);
+          const safeTotalSec = Math.max(8, Math.round(base + variance + jitter));
+
+          for (let s = safeTotalSec; s > 0; s--) {
+            if (!isRunningRef.current) break;
+            while (isPausedRef.current) {
+              await new Promise(r => setTimeout(r, 500));
+              if (!isRunningRef.current) break;
+            }
+            setNextDelaySeconds(s);
+            await new Promise(r => setTimeout(r, 1000));
+          }
+          setNextDelaySeconds(0);
         }
         if (!isRunningRef.current) break;
 
         contact.status = 'SENDING';
         onContactsUpdate([...currentList]);
 
-        // Format personalized text for this contact
-        const customizedText = WhatsAppSenderEngine.interpolate(messageTemplate, contact).trim();
+        // Format personalized text for this contact (including Spintax)
+        let customizedText = WhatsAppSenderEngine.interpolate(messageTemplate, contact).trim();
+        if (includeOptOutFooter && customizedText) {
+          customizedText += '\n\nReply STOP to unsubscribe.';
+        }
         if (!customizedText && !media) {
           contact.status = 'FAILED';
           onContactsUpdate([...currentList]);
@@ -397,6 +439,10 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
   const handleStop = () => {
     setIsRunning(false);
     setIsPaused(false);
+    setIsOnBreak(false);
+    setBreakSecondsLeft(0);
+    setNextDelaySeconds(0);
+    skipBreakRef.current = false;
     isRunningRef.current = false;
     isPausedRef.current = false;
   };
@@ -405,6 +451,10 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
   const resetAllStatuses = () => {
     setIsRunning(false);
     setIsPaused(false);
+    setIsOnBreak(false);
+    setBreakSecondsLeft(0);
+    setNextDelaySeconds(0);
+    skipBreakRef.current = false;
     isRunningRef.current = false;
     isPausedRef.current = false;
     setCurrentIndex(0);
@@ -527,13 +577,49 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
         </div>
       </div>
 
+      {/* Live Anti-Ban Rest Break / Coffee Break Notice */}
+      {isOnBreak && (
+        <div className="p-4 bg-amber-50 dark:bg-amber-950/40 border-2 border-amber-300 dark:border-amber-700 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3 text-xs shadow-md animate-pulse">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-200 dark:bg-amber-900 text-amber-800 dark:text-amber-200 flex items-center justify-center shrink-0">
+              <Clock className="w-5 h-5 animate-spin" />
+            </div>
+            <div>
+              <div className="font-bold text-amber-900 dark:text-amber-200 text-sm flex items-center gap-2">
+                <span>🛡️ Anti-Ban Human Rest Break</span>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100 font-mono">
+                  {Math.floor(breakSecondsLeft / 60)}m {breakSecondsLeft % 60}s remaining
+                </span>
+              </div>
+              <p className="text-amber-700 dark:text-amber-300 text-xs mt-0.5">
+                Simulating a natural human typing break to keep your WhatsApp account 100% safe from automated detection.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => { skipBreakRef.current = true; }}
+            className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-semibold cursor-pointer shadow-xs transition shrink-0"
+          >
+            Skip Break (Resume Now)
+          </button>
+        </div>
+      )}
+
       {/* Live Anti-Ban Sending Notice Banner */}
       {isRunning ? (
-        <div className="p-3.5 bg-emerald-50/90 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/80 rounded-2xl flex items-center gap-3 text-xs text-emerald-900 dark:text-emerald-200 shadow-2xs">
-          <Radio className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400 animate-pulse" />
-          <div className="leading-relaxed">
-            <strong>Safe Anti-Ban Dispatch in Progress:</strong> Messages are being sent directly from your browser with humanized intervals (7–60s) to safeguard your account against WhatsApp bans. <strong>Please keep this tab open while sending.</strong>
+        <div className="p-3.5 bg-emerald-50/90 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/80 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-emerald-900 dark:text-emerald-200 shadow-2xs">
+          <div className="flex items-center gap-3">
+            <Radio className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400 animate-pulse" />
+            <div className="leading-relaxed">
+              <strong>Safe Anti-Ban Dispatch in Progress:</strong> Messages sent with real WebSocket typing state, Spintax text variations, and randomized pacing ({Math.max(7, delaySeconds || 16)}s+).
+            </div>
           </div>
+          {nextDelaySeconds > 0 && (
+            <span className="px-2.5 py-1 rounded-lg bg-emerald-200 dark:bg-emerald-900 text-emerald-900 dark:text-emerald-100 font-mono text-[11px] font-bold shrink-0 self-start sm:self-auto">
+              Next in {nextDelaySeconds}s
+            </span>
+          )}
         </div>
       ) : (
         <div className="p-3 bg-purple-50/60 dark:bg-purple-950/20 border border-purple-200/70 dark:border-purple-900/40 rounded-2xl flex flex-wrap items-center justify-between gap-2 text-[11px] text-zinc-600 dark:text-zinc-300">
@@ -542,11 +628,33 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
             <span className="font-semibold text-zinc-800 dark:text-zinc-200">
               Anti-Ban Protection Active:
             </span>
-            <span>Humanized delay with jitter ({Math.max(7, delaySeconds || 7)}s) • Unified message delivery • Zero link preview crawlers</span>
+            <span>Real typing presence • Spintax variation • Dynamic {Math.max(7, delaySeconds || 16)}s+ delay • Zero link crawlers</span>
           </div>
           <span className="text-[10px] text-zinc-400 dark:text-zinc-500 font-mono">100% Local Browser Engine</span>
         </div>
       )}
+
+      {/* Anti-Ban Opt-Out Toggle Control */}
+      <div className="p-3 bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700/60 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs">
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={includeOptOutFooter}
+            onChange={e => setIncludeOptOutFooter(e.target.checked)}
+            className="w-4 h-4 rounded text-[#5722AF] accent-[#5722AF] cursor-pointer"
+          />
+          <span className="font-semibold text-zinc-800 dark:text-zinc-200">
+            Anti-Ban Opt-Out Footer:
+          </span>
+          <span className="text-zinc-500 dark:text-zinc-400 font-mono text-[11px] bg-zinc-100 dark:bg-zinc-700/60 px-1.5 py-0.5 rounded">
+            Reply STOP to unsubscribe
+          </span>
+        </label>
+        <div className="flex items-center gap-1.5 text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+          <ShieldCheck className="w-3.5 h-3.5" />
+          <span>Stops recipients from clicking &quot;Report as Spam&quot;</span>
+        </div>
+      </div>
 
       {/* Plan Expired Alert Message */}
       {isPlanExpired && (
