@@ -79,6 +79,7 @@ export class WhatsAppSessionEngine {
   private user: WhatsAppUser | null = null;
   private lastConnectedAt: string | null = null;
   private isConnecting: boolean = false;
+  private isRestarting: boolean = false;
   private isExplicitLogout: boolean = false;
   private lastInitAttempt: number = 0;
   private reconnectTimer: NodeJS.Timeout | null = null;
@@ -104,6 +105,24 @@ export class WhatsAppSessionEngine {
     return path.resolve(this.sessionDir, `wwebjs_auth_${this.userId}`);
   }
 
+  private async safeRemoveDir(dirPath: string): Promise<void> {
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      try {
+        if (fs.existsSync(dirPath)) {
+          fs.rmSync(dirPath, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+        }
+        return;
+      } catch (err: any) {
+        if (attempt < 4) {
+          this.killOrphanChromeProcesses();
+          await new Promise((r) => setTimeout(r, 600));
+        } else {
+          console.warn(`[WhatsApp Worker (${this.userId})] Could not completely clear ${dirPath}:`, err.message);
+        }
+      }
+    }
+  }
+
   private getPuppeteerOptions() {
     const baseArgs = [
       '--no-sandbox',
@@ -113,11 +132,15 @@ export class WhatsAppSessionEngine {
       '--no-first-run',
       '--no-zygote',
       '--disable-gpu',
-      '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+      '--disable-features=IsolateOrigins,site-per-process',
+      '--disable-site-isolation-trials',
+      '--disable-blink-features=AutomationControlled',
+      '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36'
     ];
 
     const options: any = {
       headless: true,
+      ignoreDefaultArgs: ['--enable-automation'],
       args: baseArgs
     };
 
@@ -225,6 +248,11 @@ export class WhatsAppSessionEngine {
         authStrategy: new LocalAuth({
           dataPath: authPath
         }),
+        webVersionCache: {
+          type: 'remote',
+          remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1052198210-alpha.html',
+          strict: false
+        },
         ...(pairPhoneNumber
           ? {
               pairWithPhoneNumber: {
@@ -382,10 +410,10 @@ export class WhatsAppSessionEngine {
       await this.initialize();
     }
 
-    // If still connecting, wait for client to reach QR_READY or CONNECTED (up to 15s)
+    // If still connecting, wait for client to reach QR_READY or CONNECTED (up to 20s)
     if (this.isConnecting || this.state === 'CONNECTING') {
       const start = Date.now();
-      while ((this.isConnecting || this.state === 'CONNECTING') && Date.now() - start < 15000) {
+      while ((this.isConnecting || this.state === 'CONNECTING') && Date.now() - start < 20000) {
         await new Promise((r) => setTimeout(r, 500));
       }
     }
@@ -396,32 +424,72 @@ export class WhatsAppSessionEngine {
 
     // Request pairing code directly from active WhatsApp Web page
     if (this.client && (this.client as any).pupPage) {
-      try {
-        console.log(`[WhatsApp Worker (${this.userId})] Requesting pairing code directly from active page for +${digits}...`);
-        this.state = 'WAITING_FOR_PAIRING';
-        const code = await (this.client as any).requestPairingCode(digits);
-        if (code) {
-          this.pairingCode = String(code);
-          return String(code);
+      const pupPage = (this.client as any).pupPage;
+      let lastErr: any = null;
+
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          if (pupPage.isClosed && pupPage.isClosed()) {
+            throw new Error('Browser page was closed. Please refresh QR and try again.');
+          }
+
+          console.log(`[WhatsApp Worker (${this.userId})] Requesting pairing code (attempt ${attempt}/3) for +${digits}...`);
+          this.state = 'WAITING_FOR_PAIRING';
+
+          // Wait up to 6 seconds for AuthStore to be ready on the page
+          await pupPage.waitForFunction(
+            "typeof window !== 'undefined' && typeof window.AuthStore !== 'undefined' && typeof window.AuthStore.PairingCodeLinkUtils !== 'undefined'",
+            { timeout: 6000 }
+          ).catch(() => {});
+
+          const code = await (this.client as any).requestPairingCode(digits);
+          if (code) {
+            this.pairingCode = String(code);
+            console.log(`[WhatsApp Worker (${this.userId})] Successfully generated pairing code: ${code}`);
+            return String(code);
+          }
+        } catch (err: any) {
+          lastErr = err;
+          const errMsg = err?.message || String(err);
+          console.warn(`[WhatsApp Worker (${this.userId})] Pairing code attempt ${attempt} failed: ${errMsg}`);
+
+          if (errMsg.includes('detached') || errMsg.includes('destroyed') || errMsg.includes('navigation') || errMsg.includes('Target closed')) {
+            await new Promise((r) => setTimeout(r, 1500));
+            continue;
+          }
+
+          const lower = errMsg.toLowerCase();
+          if (lower.includes('429') || lower.includes('rate-overlimit') || lower.includes('overlimit') || lower.includes('companionhelloerror') || lower.includes('too many')) {
+            this.pairingCode = null;
+            if (this.qrCodeDataUrl) this.state = 'QR_READY';
+            throw new Error('WhatsApp servers are currently rate-limiting phone code requests. Please scan the QR Code on the QR tab instead to connect instantly!');
+          }
+          break;
         }
-      } catch (err: any) {
-        const errMsg = err?.message || String(err);
-        console.warn(`[WhatsApp Worker (${this.userId})] Pairing code request rejected: ${errMsg}`);
-        this.pairingCode = null;
-        if (this.qrCodeDataUrl) {
-          this.state = 'QR_READY';
-        }
-        if (errMsg.includes('429') || errMsg.includes('overlimit') || errMsg.includes('CompanionHelloError') || errMsg.includes('t')) {
-          throw new Error('WhatsApp servers are currently rate-limiting phone code requests (429). Please scan the QR Code on the QR tab instead to connect instantly!');
-        }
-        throw new Error(errMsg || 'Failed to generate pairing code. Please scan the QR code instead.');
       }
+
+      this.pairingCode = null;
+      if (this.qrCodeDataUrl) this.state = 'QR_READY';
+      const finalMsg = lastErr?.message || String(lastErr);
+      const lower = finalMsg.toLowerCase();
+      if (lower.includes('429') || lower.includes('rate-overlimit') || lower.includes('overlimit') || lower.includes('companionhelloerror') || lower.includes('too many')) {
+        throw new Error('WhatsApp servers are currently rate-limiting phone code requests. Please scan the QR Code on the QR tab instead to connect instantly!');
+      }
+      throw new Error(finalMsg || 'Failed to generate pairing code. Please scan the QR code instead.');
     }
 
     throw new Error('WhatsApp Web engine is not ready. Please scan the QR code to connect.');
   }
 
   public async logout(clearCredentials: boolean = true, autoRestart: boolean = false): Promise<void> {
+    if (this.isRestarting && autoRestart) {
+      console.log(`[WhatsApp Worker (${this.userId})] Session is already restarting, skipping duplicate logout/restart request.`);
+      return;
+    }
+    if (autoRestart) {
+      this.isRestarting = true;
+    }
+
     this.isExplicitLogout = true;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -454,14 +522,8 @@ export class WhatsAppSessionEngine {
 
     if (clearCredentials) {
       const authPath = this.getAuthPath();
-      try {
-        if (fs.existsSync(authPath)) {
-          fs.rmSync(authPath, { recursive: true, force: true });
-          console.log(`[WhatsApp Worker (${this.userId})] Cleared session files from`, authPath);
-        }
-      } catch (err: any) {
-        console.warn(`[WhatsApp Worker (${this.userId})] Failed to clear session files:`, err.message);
-      }
+      await this.safeRemoveDir(authPath);
+      console.log(`[WhatsApp Worker (${this.userId})] Cleared session files from`, authPath);
     }
 
     this.purgeLockFiles();
@@ -469,7 +531,11 @@ export class WhatsAppSessionEngine {
 
     if (autoRestart) {
       setTimeout(() => {
-        this.initialize().catch(() => {});
+        this.initialize()
+          .catch(() => {})
+          .finally(() => {
+            this.isRestarting = false;
+          });
       }, 1000);
     }
   }
