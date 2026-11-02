@@ -16,8 +16,8 @@ import {
   Zap,
   RotateCcw
 } from 'lucide-react';
-import { WebContact, WhatsAppWebSession } from '@/lib/whatsapp-web/types';
-import { WhatsAppSenderEngine } from '@/lib/whatsapp-web/sender';
+import { WebContact, WhatsAppWebSession, AntiBanProfile } from '@/lib/whatsapp-web/types';
+import { WhatsAppSenderEngine, ANTI_BAN_PROFILES } from '@/lib/whatsapp-web/sender';
 import { WhatsAppSessionManager } from '@/lib/whatsapp-web/session';
 import { MediaAttachment } from './WhatsAppMessageComposer';
 import { PlanLimitsConfig, WhatsAppLimitManager, CalculatedUsage } from '@/lib/whatsapp-web/limit-manager';
@@ -45,6 +45,10 @@ interface WhatsAppAutoSenderProps {
     [key: string]: any;
   } | null;
   onOpenRenewalModal?: (plan?: '1_month' | '3_months' | '6_months') => void;
+  antiBanProfile?: AntiBanProfile;
+  onProfileChange?: (profile: AntiBanProfile) => void;
+  includeOptOutFooter?: boolean;
+  onToggleOptOutFooter?: (enabled: boolean) => void;
 }
 
 interface LogItem {
@@ -70,7 +74,11 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
   userId,
   planLimits,
   currentUser,
-  onOpenRenewalModal
+  onOpenRenewalModal,
+  antiBanProfile = 'balanced',
+  onProfileChange,
+  includeOptOutFooter = true,
+  onToggleOptOutFooter
 }) => {
   const effectiveUserId = (userId && userId.trim() !== 'default' ? userId.trim() : WhatsAppSessionManager.getUserId()).toLowerCase();
   const [isRunning, setIsRunning] = useState(false);
@@ -80,7 +88,11 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
   const [showImageNoticeModal, setShowImageNoticeModal] = useState(false);
 
   // Anti-Ban & Human Mimicry Controls
-  const [includeOptOutFooter, setIncludeOptOutFooter] = useState(true);
+  const [internalOptOut, setInternalOptOut] = useState(true);
+  const effectiveOptOut = includeOptOutFooter !== undefined ? includeOptOutFooter : internalOptOut;
+  const selectedProfile: AntiBanProfile = antiBanProfile || 'balanced';
+  const profileConfig = ANTI_BAN_PROFILES[selectedProfile] || ANTI_BAN_PROFILES.balanced;
+
   const [isOnBreak, setIsOnBreak] = useState(false);
   const [breakSecondsLeft, setBreakSecondsLeft] = useState(0);
   const [nextDelaySeconds, setNextDelaySeconds] = useState(0);
@@ -228,6 +240,17 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
       }
 
       let sentThisRun = 0;
+      let sentInCurrentBatch = 0;
+      const getBatchThreshold = () => {
+        if (selectedProfile === 'warmup') {
+          return 6 + Math.floor(Math.random() * 3); // 6 to 8 msgs
+        }
+        if (selectedProfile === 'turbo') {
+          return 12 + Math.floor(Math.random() * 4); // 12 to 15 msgs
+        }
+        return 8 + Math.floor(Math.random() * 3); // 8 to 10 msgs (balanced)
+      };
+      let currentBatchThreshold = getBatchThreshold();
 
       for (let i = 0; i < currentList.length; i++) {
         if (!isRunningRef.current) break;
@@ -257,10 +280,10 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
           break;
         }
 
-        // 1. Anti-Ban Automated Rest Break (Coffee Break): Rest 90-135s after every 12-16 messages
-        const breakBatchThreshold = 12 + (i % 5); // Natural varying batch size 12-16
-        if (sentThisRun > 0 && sentThisRun % breakBatchThreshold === 0) {
-          const breakDuration = 90 + Math.floor(Math.random() * 45); // 90 to 135 seconds
+        // 1. Anti-Ban Automated Rest Break: Guaranteed pause after every batch of messages
+        if (sentThisRun > 0 && sentInCurrentBatch >= currentBatchThreshold) {
+          const baseBreak = selectedProfile === 'warmup' ? 150 : selectedProfile === 'turbo' ? 60 : 100;
+          const breakDuration = baseBreak + Math.floor(Math.random() * 40); // 150-190s warmup, 100-140s balanced
           setIsOnBreak(true);
           skipBreakRef.current = false;
 
@@ -275,16 +298,19 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
           }
           setIsOnBreak(false);
           setBreakSecondsLeft(0);
+          sentInCurrentBatch = 0;
+          currentBatchThreshold = getBatchThreshold();
         }
         if (!isRunningRef.current) break;
 
         // 2. Anti-ban & Session settlement delay between consecutive sends (with natural human jitter)
         if (sentThisRun > 0) {
-          const base = Math.max(7, Math.min(60, delaySeconds || 16));
-          // Natural random variance (+0% to +45% extra time) + micro-jitter
-          const variance = Math.random() * (base * 0.45);
+          const profileMin = selectedProfile === 'warmup' ? 20 : selectedProfile === 'turbo' ? 10 : 15;
+          const base = Math.max(profileMin, Math.min(60, delaySeconds || 18));
+          // Natural random variance (+0% to +40% extra time) + micro-jitter
+          const variance = Math.random() * (base * 0.4);
           const jitter = (Math.random() * 2 - 1);
-          const safeTotalSec = Math.max(8, Math.round(base + variance + jitter));
+          const safeTotalSec = Math.max(profileMin, Math.round(base + variance + jitter));
 
           for (let s = safeTotalSec; s > 0; s--) {
             if (!isRunningRef.current) break;
@@ -304,7 +330,7 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
 
         // Format personalized text for this contact (including Spintax)
         let customizedText = WhatsAppSenderEngine.interpolate(messageTemplate, contact).trim();
-        if (includeOptOutFooter && customizedText) {
+        if (effectiveOptOut && customizedText) {
           customizedText += '\n\nReply STOP to unsubscribe.';
         }
         if (!customizedText && !media) {
@@ -373,6 +399,7 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
         contact.status = sendSuccess ? 'SENT' : 'FAILED';
         contact.sentAt = new Date().toISOString();
         sentThisRun++;
+        sentInCurrentBatch++;
         onContactsUpdate([...currentList]);
 
         if (sendSuccess) {
@@ -612,7 +639,7 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
           <div className="flex items-center gap-3">
             <Radio className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400 animate-pulse" />
             <div className="leading-relaxed">
-              <strong>Safe Anti-Ban Dispatch in Progress:</strong> Messages sent with real WebSocket typing state, Spintax text variations, and randomized pacing ({Math.max(7, delaySeconds || 16)}s+).
+              <strong>{profileConfig.badge} Active:</strong> Messages sent with authentic typing telemetry, Spintax variation, randomized human jitter, and guaranteed rest breaks every {profileConfig.batchSize} msgs.
             </div>
           </div>
           {nextDelaySeconds > 0 && (
@@ -626,9 +653,9 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-[#5722AF] dark:text-purple-400 shrink-0" />
             <span className="font-semibold text-zinc-800 dark:text-zinc-200">
-              Anti-Ban Protection Active:
+              {profileConfig.name} ({profileConfig.badge}):
             </span>
-            <span>Real typing presence • Spintax variation • Dynamic {Math.max(7, delaySeconds || 16)}s+ delay • Zero link crawlers</span>
+            <span>Typing simulation • Guaranteed batch cooldowns • Dynamic {Math.max(10, delaySeconds || 18)}s+ delay</span>
           </div>
           <span className="text-[10px] text-zinc-400 dark:text-zinc-500 font-mono">100% Local Browser Engine</span>
         </div>
@@ -639,8 +666,12 @@ export const WhatsAppAutoSender: React.FC<WhatsAppAutoSenderProps> = ({
         <label className="flex items-center gap-2 cursor-pointer select-none">
           <input
             type="checkbox"
-            checked={includeOptOutFooter}
-            onChange={e => setIncludeOptOutFooter(e.target.checked)}
+            checked={effectiveOptOut}
+            onChange={e => {
+              const val = e.target.checked;
+              setInternalOptOut(val);
+              if (onToggleOptOutFooter) onToggleOptOutFooter(val);
+            }}
             className="w-4 h-4 rounded text-[#5722AF] accent-[#5722AF] cursor-pointer"
           />
           <span className="font-semibold text-zinc-800 dark:text-zinc-200">

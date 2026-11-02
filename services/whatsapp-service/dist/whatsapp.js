@@ -498,24 +498,11 @@ class WhatsAppSessionEngine {
         }
         const hasUrl = /https?:\/\/[^\s]+/i.test(cleanText);
         const shouldSendSeparately = options?.sendTextSeparately || (hasUrl && options?.sendTextSeparately !== false);
-        // Recipient number ID lookup matching /whatsapp-mess session-service.ts
+        // Direct Chat ID targeting: Directly send to `${digits}@c.us` without calling getNumberId()
+        // CRITICAL ANTI-BAN: Calling getNumberId() on dozens of non-contacts sends `queryWidExists` IQ stanzas
+        // to WhatsApp servers. Meta flags rapid queryWidExists loops as automated scraping/phone harvesting!
         const fallbackChatId = `${digits}@c.us`;
         let chatId = fallbackChatId;
-        try {
-            const numberId = await Promise.race([
-                this.client.getNumberId(digits),
-                new Promise((resolve) => setTimeout(() => resolve(null), 12000))
-            ]);
-            if (numberId?._serialized) {
-                chatId = numberId._serialized;
-            }
-            else {
-                console.log(`[WhatsApp Worker] Number lookup returned empty for ${digits}. Trying direct chat ID ${fallbackChatId}.`);
-            }
-        }
-        catch (error) {
-            console.warn(`[WhatsApp Worker] Number lookup failed for ${digits}: ${error.message || error}. Trying direct chat ID.`);
-        }
         // Prepare media if provided
         let messageMedia = null;
         if (media) {
@@ -586,10 +573,17 @@ class WhatsAppSessionEngine {
                 lastError = error;
                 console.warn(`[WhatsApp Worker] Send attempt ${attempt} failed for ${digits}:`, error.message || error);
                 if (attempt < 2) {
-                    // Switch to direct fallbackChatId on retry if lookup ID failed
-                    if (chatId !== fallbackChatId) {
-                        chatId = fallbackChatId;
+                    // If direct send to `${digits}@c.us` failed, try resolving JID on retry
+                    try {
+                        const numberId = await Promise.race([
+                            this.client.getNumberId(digits),
+                            new Promise((resolve) => setTimeout(() => resolve(null), 6000))
+                        ]);
+                        if (numberId?._serialized) {
+                            chatId = numberId._serialized;
+                        }
                     }
+                    catch (_) { }
                     await new Promise((resolve) => setTimeout(resolve, 2000));
                 }
             }

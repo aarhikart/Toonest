@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
     const userId = (body?.userId && typeof body.userId === 'string' && body.userId.trim() !== 'default')
       ? body.userId.trim().toLowerCase()
       : getWorkerUserId(req);
-    const { contacts, template, delaySeconds = 7, media, sendTextSeparately } = body;
+    const { contacts, template, delaySeconds = 18, media, sendTextSeparately } = body;
 
     if (!Array.isArray(contacts) || contacts.length === 0) {
       return NextResponse.json(

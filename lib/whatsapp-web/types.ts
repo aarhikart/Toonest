@@ -45,3 +45,30 @@ export interface CampaignSenderState {
     message: string;
   }>;
 }
+
+export type AntiBanProfile = 'warmup' | 'balanced' | 'turbo';
+
+export interface AntiBanProfileConfig {
+  id: AntiBanProfile;
+  name: string;
+  badge: string;
+  description: string;
+  recommendedDelay: number;
+  minDelay: number;
+  batchSize: number;
+  breakDurationSeconds: number;
+  recommendedFor: string;
+}
+
+export interface AntiBanSafetyAnalysis {
+  score: number; // 0 - 100
+  rating: 'ultra_safe' | 'good' | 'moderate' | 'danger';
+  hasSpintax: boolean;
+  hasPersonalization: boolean;
+  hasOptOut: boolean;
+  hasUrl: boolean;
+  isDelaySafe: boolean;
+  delayScore: number;
+  recommendations: string[];
+}
+

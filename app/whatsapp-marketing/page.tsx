@@ -27,9 +27,9 @@ import { WhatsAppWebConnect } from '@/components/whatsapp-web/WhatsAppWebConnect
 import { WhatsAppContactList } from '@/components/whatsapp-web/WhatsAppContactList';
 import { WhatsAppMessageComposer, MediaAttachment } from '@/components/whatsapp-web/WhatsAppMessageComposer';
 import { WhatsAppAutoSender } from '@/components/whatsapp-web/WhatsAppAutoSender';
-import { WhatsAppSessionManager } from '@/lib/whatsapp-web/session';
 import { WhatsAppSenderEngine } from '@/lib/whatsapp-web/sender';
-import { WhatsAppWebSession, WebContact } from '@/lib/whatsapp-web/types';
+import { WhatsAppSessionManager } from '@/lib/whatsapp-web/session';
+import { WhatsAppWebSession, WebContact, AntiBanProfile } from '@/lib/whatsapp-web/types';
 import { WhatsAppAuthModal } from '@/components/whatsapp-web/WhatsAppAuthModal';
 import { WhatsAppAdminDashboard } from '@/components/whatsapp-web/WhatsAppAdminDashboard';
 import { WhatsAppUserBar } from '@/components/whatsapp-web/WhatsAppUserBar';
@@ -88,9 +88,11 @@ export default function WhatsAppMarketingPage() {
 
   // Message & Delay State
   const [messageTemplate, setMessageTemplate] = useState<string>(
-    'Hi {name}! 🎉 We are excited to announce our exclusive annual offer. Reply to this message to claim your code!'
+    '{Hello|Hi|Greetings} {name}! 🎉 {We are excited to announce|Check out} our exclusive annual offer. Reply to this message to claim your code!'
   );
-  const [delaySeconds, setDelaySeconds] = useState<number>(7);
+  const [delaySeconds, setDelaySeconds] = useState<number>(18);
+  const [antiBanProfile, setAntiBanProfile] = useState<AntiBanProfile>('balanced');
+  const [includeOptOutFooter, setIncludeOptOutFooter] = useState<boolean>(true);
 
   // Media Attachment State (Image / Document)
   const [media, setMedia] = useState<MediaAttachment | null>(null);
@@ -565,6 +567,9 @@ export default function WhatsAppMarketingPage() {
                   onMediaChange={handleMediaChange}
                   previewContact={contacts[0]}
                   onOpenGuide={() => setActiveGuideStep(3)}
+                  antiBanProfile={antiBanProfile}
+                  onProfileChange={setAntiBanProfile}
+                  includeOptOutFooter={includeOptOutFooter}
                 />
               </section>
             </div>
@@ -601,6 +606,10 @@ export default function WhatsAppMarketingPage() {
                   if (plan) setRenewalInitialPlan(plan);
                   setIsRenewalModalOpen(true);
                 }}
+                antiBanProfile={antiBanProfile}
+                onProfileChange={setAntiBanProfile}
+                includeOptOutFooter={includeOptOutFooter}
+                onToggleOptOutFooter={setIncludeOptOutFooter}
               />
             </section>
           </div>

@@ -1,4 +1,4 @@
-import { WebContact } from './types';
+import { WebContact, AntiBanProfile, AntiBanProfileConfig, AntiBanSafetyAnalysis } from './types';
 
 export interface CountryCodeOption {
   name: string;
@@ -21,6 +21,42 @@ export const POPULAR_COUNTRY_CODES: CountryCodeOption[] = [
   { name: 'South Africa', code: 'ZA', dialCode: '27', flag: '🇿🇦', sampleDigits: 9 },
   { name: 'Nigeria', code: 'NG', dialCode: '234', flag: '🇳🇬', sampleDigits: 10 }
 ];
+
+export const ANTI_BAN_PROFILES: Record<AntiBanProfile, AntiBanProfileConfig> = {
+  warmup: {
+    id: 'warmup',
+    name: 'Warm-Up & Cold List Protection',
+    badge: '🛡️ Maximum Protection',
+    description: 'Ultra-safe pacing for fresh numbers, new accounts, or cold contacts who have not saved your number.',
+    recommendedDelay: 25,
+    minDelay: 20,
+    batchSize: 8,
+    breakDurationSeconds: 180, // 3 min break every 8 msgs
+    recommendedFor: 'Accounts < 30 days old or cold marketing lists'
+  },
+  balanced: {
+    id: 'balanced',
+    name: 'Standard Balanced Safe Mode',
+    badge: '⚖️ Recommended (Safe)',
+    description: 'Humanized pacing with automated coffee breaks, recommended for active WhatsApp accounts.',
+    recommendedDelay: 18,
+    minDelay: 15,
+    batchSize: 10,
+    breakDurationSeconds: 120, // 2 min break every 10 msgs
+    recommendedFor: 'Warmed up accounts & customer broadcasts'
+  },
+  turbo: {
+    id: 'turbo',
+    name: 'Fast Delivery (Saved Contacts Only)',
+    badge: '⚡ Fast Mode',
+    description: 'Higher throughput with micro-breaks. WARNING: Only use if recipients have already saved your number in their phonebook!',
+    recommendedDelay: 12,
+    minDelay: 10,
+    batchSize: 15,
+    breakDurationSeconds: 90,
+    recommendedFor: 'Existing clients who have your contact saved'
+  }
+};
 
 export class WhatsAppSenderEngine {
   /**
@@ -233,4 +269,138 @@ export class WhatsAppSenderEngine {
       { id: 'sc_5', name: 'David Miller', phoneNumber: '+442079460192', status: 'PENDING' }
     ];
   }
+
+  /**
+   * Evaluates the Anti-Ban safety score and provides actionable recommendations
+   */
+  static calculateAntiBanScore(
+    template: string,
+    delaySeconds: number,
+    hasOptOut: boolean,
+    profile: AntiBanProfile = 'balanced'
+  ): AntiBanSafetyAnalysis {
+    const rawText = template || '';
+    const hasSpintax = /\{([^{}]+?\|[^{}]+?)\}/.test(rawText);
+    const hasPersonalization = /\{\{\s*(?:name|first_name|customer|contact)\s*\}\}|\{\s*(?:name|first_name|customer|contact)\s*\}|\[\s*(?:name|first_name|customer|contact)\s*\]|%\s*(?:name|customer|contact)\s*%/i.test(rawText);
+    const hasUrl = this.hasUrl(rawText);
+
+    let score = 0;
+    const recommendations: string[] = [];
+
+    // 1. Spintax variation (Weight: 30 pts)
+    if (hasSpintax) {
+      score += 30;
+    } else {
+      recommendations.push('Add Spintax variations like {Hello|Hi|Greetings} so each recipient gets a unique text hash.');
+    }
+
+    // 2. Delay Safety (Weight: 30 pts)
+    let delayScore = 0;
+    const safeDelay = Math.max(0, delaySeconds || 0);
+    const isDelaySafe = safeDelay >= 16;
+    if (safeDelay >= 24) {
+      delayScore = 30;
+    } else if (safeDelay >= 18) {
+      delayScore = 25;
+    } else if (safeDelay >= 15) {
+      delayScore = 18;
+    } else if (safeDelay >= 10) {
+      delayScore = 8;
+      recommendations.push('Delay is low (10-14s). Increase to 18s-25s to avoid automated cadence detection.');
+    } else {
+      delayScore = 0;
+      recommendations.push('CRITICAL: Delay under 10s will almost certainly get your WhatsApp account blocked!');
+    }
+    score += delayScore;
+
+    // 3. Opt-Out Protection (Weight: 20 pts)
+    if (hasOptOut) {
+      score += 20;
+    } else {
+      recommendations.push('Enable the Anti-Ban Opt-Out footer (Reply STOP) so recipients do not click "Report as Spam".');
+    }
+
+    // 4. Personalization (Weight: 20 pts)
+    if (hasPersonalization) {
+      score += 20;
+    } else {
+      recommendations.push("Use the {name} tag. Personalizing with the recipient's name reduces spam reports by 70%.");
+    }
+
+    // 5. Cold Link Penalty
+    if (hasUrl) {
+      if (!hasSpintax) {
+        score = Math.max(0, score - 15);
+        recommendations.push('Sending cold links without Spintax triggers WhatsApp Phishing Shields. Consider asking contacts to reply first.');
+      } else {
+        score = Math.max(0, score - 5);
+      }
+    }
+
+    // Profile bonus / penalty
+    if (profile === 'warmup') {
+      score = Math.min(100, score + 5);
+    } else if (profile === 'turbo' && !hasSpintax) {
+      score = Math.max(0, score - 10);
+    }
+
+    score = Math.min(100, Math.max(0, Math.round(score)));
+
+    let rating: AntiBanSafetyAnalysis['rating'] = 'moderate';
+    if (score >= 88) rating = 'ultra_safe';
+    else if (score >= 72) rating = 'good';
+    else if (score >= 50) rating = 'moderate';
+    else rating = 'danger';
+
+    return {
+      score,
+      rating,
+      hasSpintax,
+      hasPersonalization,
+      hasOptOut,
+      hasUrl,
+      isDelaySafe,
+      delayScore,
+      recommendations
+    };
+  }
+
+  /**
+   * Generates formal WhatsApp Unban Appeal templates for email or in-app review
+   */
+  static getUnbanAppealTemplate(phoneNumber?: string, businessName?: string) {
+    const cleanPhone = phoneNumber ? phoneNumber.trim() : '+[Your Country Code & Phone Number]';
+    const biz = businessName ? businessName.trim() : 'our business';
+
+    const emailSubject = `Request to restore WhatsApp account: ${cleanPhone}`;
+    const emailBody = `Dear WhatsApp Support Team,
+
+I am writing to formally request a review of my WhatsApp account (${cleanPhone}), which was unexpectedly blocked by your automated spam detection system.
+
+I believe this suspension was made in error. This phone number is our primary communication line for ${biz}, where we interact with our customers and clients. We have always strictly complied with WhatsApp's Terms of Service and community guidelines.
+
+We do not engage in unauthorized scraping or malicious activities. Any recent messages were sent solely to our registered clients and customers with legitimate intent.
+
+Could you please conduct a manual review of our account activity and restore our access? We are committed to maintaining a safe and respectful messaging experience.
+
+Thank you very much for your understanding and prompt assistance.
+
+Sincerely,
+Account Owner (${cleanPhone})`;
+
+    const inAppReviewText = `My WhatsApp number (${cleanPhone}) was blocked by mistake. I use this number exclusively for legitimate business communication with my customers and clients, and I always comply with WhatsApp's Terms of Service. Please review my account and restore access. Thank you.`;
+
+    const hindiAppealText = `नमस्ते व्हाट्सएप सपोर्ट टीम,
+मेरा व्हाट्सएप नंबर (${cleanPhone}) अनजाने में ऑटोमेटेड सिस्टम द्वारा ब्लॉक हो गया है। मैं इस नंबर का उपयोग केवल अपने ग्राहकों और परिचितों से वैध बातचीत के लिए करता हूँ। मैंने व्हाट्सएप के किसी नियम का उल्लंघन नहीं किया है। कृपया मेरे खाते की समीक्षा करें और इसे जल्द से जल्द अनब्लॉक करें। धन्यवाद।`;
+
+    return {
+      supportEmail: 'support@whatsapp.com',
+      smbEmail: 'smb_web@support.whatsapp.com',
+      emailSubject,
+      emailBody,
+      inAppReviewText,
+      hindiAppealText
+    };
+  }
 }
+
